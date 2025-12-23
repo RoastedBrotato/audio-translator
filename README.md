@@ -188,10 +188,6 @@ Edit `cmd/server/main.go` to tune:
 - Check the Python terminal for error messages
 - Verify Whisper model downloaded successfully
 
-### No translations
-- Currently using stub translator (just adds language prefix)
-- To add real translation, implement `internal/translate/translate.go`
-
 ## Technical Details
 
 - Audio captured at browser's native sample rate (usually 48kHz)
