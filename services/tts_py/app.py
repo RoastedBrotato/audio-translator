@@ -4,32 +4,55 @@ TTS Service with Coqui XTTS v2 Voice Cloning
 Provides high-quality voice cloning from reference audio.
 """
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 from TTS.api import TTS
+from gtts import gTTS
 import tempfile
 import os
 import logging
+import asyncio
+from threading import Thread
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="TTS Service with XTTS v2")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Global TTS model
 tts_model = None
+model_loading = True
 
-@app.on_event("startup")
-async def load_model():
-    """Load XTTS v2 model on startup"""
-    global tts_model
+def load_xtts_model():
+    """Load XTTS v2 model in background thread"""
+    global tts_model, model_loading
     try:
-        logger.info("Loading XTTS v2 model... This may take a minute...")
+        logger.info("Loading XTTS v2 model in background... This may take a few minutes...")
         tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
         logger.info("✓ XTTS v2 model loaded successfully!")
     except Exception as e:
-        logger.error(f"Failed to load XTTS v2: {e}")
-        raise
+        logger.warning(f"XTTS v2 not available: {e}")
+        logger.info("Service will continue using gTTS fallback")
+    finally:
+        model_loading = False
+
+@app.on_event("startup")
+async def startup_event():
+    """Start model loading in background"""
+    logger.info("TTS Service starting - available immediately with gTTS")
+    logger.info("XTTS v2 will load in background")
+    thread = Thread(target=load_xtts_model, daemon=True)
+    thread.start()
 
 class TTSRequest(BaseModel):
     text: str
@@ -38,37 +61,54 @@ class TTSRequest(BaseModel):
 @app.post("/synthesize")
 async def synthesize(req: TTSRequest):
     """
-    Convert text to speech using XTTS v2.
-    Note: XTTS v2 is primarily for voice cloning. Use /synthesize_with_voice for best results.
+    Convert text to speech using XTTS v2 or gTTS fallback.
     Returns WAV audio data.
     """
+    global tts_model
+    
     try:
         if not req.text or not req.text.strip():
             raise HTTPException(status_code=400, detail="Text cannot be empty")
         
-        if tts_model is None:
-            raise HTTPException(status_code=503, detail="TTS model not loaded")
-        
         logger.info(f"Synthesizing text in {req.language}: {req.text[:100]}...")
-        logger.warning("Using /synthesize without voice cloning. For better results, use /synthesize_with_voice")
-        
-        # XTTS v2 requires speaker_wav for voice cloning
-        # Since no reference audio provided, we'll compute speaker latents from the text itself
-        # This provides a generic voice
         
         # Create temporary output file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as output_file:
             output_path = output_file.name
         
-        # Generate speech using text conditioning (generic voice)
-        # For XTTS v2, we use the tts_to_file with just text and language
-        # The model will use its default speaker embedding
-        tts_model.tts_to_file(
-            text=req.text,
-            file_path=output_path,
-            language=req.language,
-            speaker="Claribel Dervla"  # Use a default speaker from XTTS v2
-        )
+        # Try XTTS v2 first, fallback to gTTS
+        use_gtts = tts_model is None
+        
+        if not use_gtts:
+            try:
+                logger.info("Using XTTS v2 for synthesis")
+                tts_model.tts_to_file(
+                    text=req.text,
+                    file_path=output_path,
+                    language=req.language,
+                    speaker="Claribel Dervla"
+                )
+            except Exception as e:
+                logger.warning(f"XTTS v2 failed: {e}, falling back to gTTS")
+                use_gtts = True
+        
+        # Use gTTS fallback
+        if use_gtts:
+            logger.info("Using gTTS for synthesis")
+            tts = gTTS(text=req.text, lang=req.language, slow=False)
+            # gTTS saves as MP3, but we'll convert it
+            mp3_path = output_path.replace('.wav', '.mp3')
+            tts.save(mp3_path)
+            
+            # Convert MP3 to WAV using ffmpeg if available, otherwise return MP3
+            try:
+                import subprocess
+                subprocess.run(['ffmpeg', '-i', mp3_path, '-ar', '16000', '-ac', '1', output_path], 
+                             capture_output=True, check=True)
+                os.unlink(mp3_path)
+            except:
+                # If ffmpeg not available, just rename MP3 to use
+                os.rename(mp3_path, output_path)
         
         # Read generated audio
         with open(output_path, "rb") as f:
@@ -106,7 +146,16 @@ async def synthesize_with_voice(
             raise HTTPException(status_code=400, detail="Text cannot be empty")
         
         if tts_model is None:
-            raise HTTPException(status_code=503, detail="TTS model not loaded")
+            if model_loading:
+                raise HTTPException(
+                    status_code=503, 
+                    detail="XTTS v2 model is still loading. Voice cloning will be available soon. Please try again in a few minutes or use /synthesize endpoint for basic TTS with gTTS."
+                )
+            else:
+                raise HTTPException(
+                    status_code=503, 
+                    detail="XTTS v2 model failed to load. Voice cloning is not available. Using /synthesize endpoint for basic TTS with gTTS instead."
+                )
         
         logger.info(f"Voice cloning synthesis in {language}: {text[:100]}...")
         logger.info(f"Reference audio: {reference_audio.filename}")
@@ -152,11 +201,13 @@ async def synthesize_with_voice(
 @app.get("/health")
 async def health():
     """Health check endpoint"""
+    status = "loading" if model_loading else "ready"
     return {
-        "status": "ok",
+        "status": status,
         "service": "tts",
-        "model": "xtts_v2",
-        "voice_cloning": tts_model is not None
+        "model": "xtts_v2" if tts_model is not None else "gtts",
+        "xtts_loaded": tts_model is not None,
+        "fallback_available": True
     }
 
 if __name__ == "__main__":

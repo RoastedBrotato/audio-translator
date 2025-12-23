@@ -1,0 +1,33 @@
+services:
+  tts:
+    build: ./services/tts_py
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./services/tts_py/app.py:/app/app.py
+      - tts-models:/root/.local/share/tts
+    environment:
+      - COQUI_TOS_AGREED=1
+    restart: unless-stopped
+    container_name: audio-translator-tts
+
+  asr:
+    build: ./services/asr_py
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./services/asr_py/app.py:/app/app.py
+    restart: unless-stopped
+    container_name: audio-translator-asr
+
+  translate:
+    build: ./services/translate_py
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./services/translate_py/app.py:/app/app.py
+    restart: unless-stopped
+    container_name: audio-translator-translate
+
+volumes:
+  tts-models:

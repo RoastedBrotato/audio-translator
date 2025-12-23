@@ -34,14 +34,52 @@ brew install ffmpeg
 
 ## Setup & Running
 
-### Quick Start (All Services)
+### Quick Start with Docker (Recommended)
+
+The easiest way to run all services with proper dependencies:
+
+```bash
+# Start all Docker services
+docker compose up -d
+
+# Start the Go server
+go run cmd/server/main.go
+```
+
+Open http://localhost:8080 in your browser.
+
+**First-time setup notes:**
+- TTS service downloads XTTS v2 model (~1.8GB) on first run - takes 3-5 minutes
+- Service works immediately with gTTS fallback, voice cloning available after download completes
+- Model is cached in Docker volume for future use
+
+**Useful commands:**
+```bash
+# Check service status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# Check TTS status specifically
+curl http://127.0.0.1:8005/health
+
+# Stop services
+docker compose down
+```
+
+See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker instructions.
+
+### Quick Start (Native - All Services)
 
 ```bash
 chmod +x start-all.sh
 ./start-all.sh
 ```
 
-This starts all required services (ASR, Translation, and Go server).
+This starts all required services (ASR, Translation, TTS, and Go server). 
+
+**Note**: Native TTS service requires Python 3.11 and will need to download XTTS v2 model.
 
 ### Manual Setup
 

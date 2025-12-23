@@ -37,9 +37,11 @@ temp/
 .DS_Store
 Thumbs.db
 
-# Audio/Video files (optional - uncomment if you don't want to track test files)
-# *.mp3
-# *.mp4
-# *.wav
-# *.webm
-# *.mkv
+# Docker
+.env
+
+# Generated/temporary media files (keep sample files, ignore generated ones)
+temp/*.mp3
+temp/*.mp4
+temp/*.wav
+temp/*.webm
