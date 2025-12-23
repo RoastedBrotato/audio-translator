@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Realtime Caption Translator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="page-simple">
+  <h2>🎙️ Realtime Caption Translator</h2>
+
+  <div class="inline-buttons mb-lg">
+    <button id="btnStart" class="btn-primary">Start</button>
+    <button id="btnStop" class="btn-secondary" disabled>Stop</button>
+
+    <label style="margin-left: 12px;">Source Lang:</label>
+    <select id="sourceLang" class="inline">
+      <option value="auto" selected>Auto-detect</option>
+      <option value="en">English</option>
+      <option value="ar">Arabic</option>
+      <option value="fr">French</option>
+      <option value="es">Spanish</option>
+    </select>
+
+    <label style="margin-left: 12px;">Target:</label>
+    <select id="targetLang" class="inline">
+      <option value="ar" selected>Arabic</option>
+      <option value="ur">Urdu</option>
+    </select>
+    <span id="status" class="status">Idle</span>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <h3>Original</h3>
+      <div id="finalSrc"></div>
+      <div id="partialSrc" class="partial"></div>
+    </div>
+    <div class="col">
+      <h3>Translation</h3>
+      <div id="finalTr"></div>
+      <div id="partialTr" class="partial"></div>
+    </div>
+  </div>
+
+  <div class="divider-link">
+    <p class="text-center">
+      <a href="video.html">
+        🎬 Upload Video for Translation →
+      </a>
+    </p>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

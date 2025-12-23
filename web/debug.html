@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Audio Debug</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { font-family: monospace; }
+  </style>
+</head>
+<body class="page-simple">
+  <h2>🔧 Audio Capture Debug Tool</h2>
+  <div class="inline-buttons mb-lg">
+    <button id="btnStart" class="btn-primary">Start Capture</button>
+    <button id="btnStop" class="btn-secondary" disabled>Stop</button>
+  </div>
+  <div id="log"></div>
+
+  <script>
+    const log = document.getElementById('log');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+
+    let audioCtx, sourceNode, workletNode;
+    let chunkCount = 0;
+
+    function addLog(msg) {
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    btnStart.onclick = async () => {
+      try {
+        addLog('Requesting microphone access...');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        addLog('✓ Microphone access granted');
+
+        audioCtx = new AudioContext();
+        addLog(`Audio context sample rate: ${audioCtx.sampleRate}Hz`);
+
+        await audioCtx.audioWorklet.addModule('./pcm-worklet.js');
+        addLog('✓ Audio worklet loaded');
+
+        sourceNode = audioCtx.createMediaStreamSource(stream);
+        workletNode = new AudioWorkletNode(audioCtx, 'pcm-worklet');
+
+        workletNode.port.onmessage = (e) => {
+          chunkCount++;
+          const chunk = e.data;
+          
+          // Calculate RMS (volume level)
+          let sum = 0;
+          for (let i = 0; i < chunk.length; i++) {
+            sum += chunk[i] * chunk[i];
+          }
+          const rms = Math.sqrt(sum / chunk.length);
+          const dbFS = 20 * Math.log10(rms);
+          
+          // Find peak value
+          const peak = Math.max(...Array.from(chunk).map(Math.abs));
+          
+          // Log every chunk (not just every 10th)
+          let status = '📊';
+          if (dbFS > -20) status = '🔊'; // Loud
+          else if (dbFS > -40) status = '🔉'; // Normal speech
+          else if (dbFS > -60) status = '🔈'; // Quiet
+          else status = '🔇'; // Very quiet/silence
+          
+          addLog(`${status} Chunk #${chunkCount}: ${chunk.length} samples, Peak: ${peak.toFixed(3)}, RMS: ${rms.toFixed(4)}, dBFS: ${dbFS.toFixed(1)}`);
+        };
+
+        sourceNode.connect(workletNode);
+        addLog('✓ Audio pipeline connected - speak into your microphone!');
+        
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+      } catch (err) {
+        addLog(`ERROR: ${err.message}`);
+      }
+    };
+
+    btnStop.onclick = async () => {
+      if (workletNode) workletNode.disconnect();
+      if (sourceNode) sourceNode.disconnect();
+      if (audioCtx) await audioCtx.close();
+      
+      addLog(`Stopped. Total chunks received: ${chunkCount}`);
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      chunkCount = 0;
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Translation</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="page-gradient">
+    <div class="container">
+        <h1>🎬 Video Translation</h1>
+        <p class="subtitle">Upload a video to extract audio, transcribe, and translate</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📹</div>
+            <div class="upload-text">Click to upload or drag and drop</div>
+            <div class="upload-hint">MP4, AVI, MOV, MKV (max 500MB)</div>
+            <input type="file" id="videoFile" accept="video/*">
+        </div>
+        
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+        
+        <div class="language-selector">
+            <label for="sourceLang">Source Language:</label>
+            <select id="sourceLang">
+                <option value="en">English</option>
+                <option value="ar">Arabic</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+            </select>
+        </div>
+        
+        <div class="language-selector">
+            <label for="targetLang">Translate To:</label>
+            <select id="targetLang">
+                <option value="ar">Arabic</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+            </select>
+        </div>
+        
+        <div class="checkbox-container">
+            <input type="checkbox" id="generateTTS" checked>
+            <label for="generateTTS">🔊 Generate translated audio and replace in video</label>
+        </div>
+        
+        <div class="checkbox-container">
+            <input type="checkbox" id="cloneVoice" checked>
+            <label for="cloneVoice">🎭 Clone original voice (keeps speaker's voice characteristics)</label>
+        </div>
+        
+        <div class="error-message" id="errorMessage"></div>
+        
+        <div class="button-group">
+            <button class="upload-btn" id="uploadBtn" disabled>Process Video</button>
+            <button class="clear-btn" id="clearBtn">Clear</button>
+        </div>
+        
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">Processing...</div>
+        </div>
+        
+        <div class="results" id="results">
+            <div class="result-section">
+                <div class="result-title">
+                    <span>📝</span> Original Transcription
+                </div>
+                <div class="result-content" id="transcription"></div>
+            </div>
+            
+            <div class="result-section">
+                <div class="result-title">
+                    <span>🌍</span> Translation
+                </div>
+                <div class="result-content" id="translation"></div>
+            </div>
+            
+            <div class="result-section">
+                <div class="result-title">
+                    <span>⏱️</span> Video Duration
+                </div>
+                <div class="result-content" id="duration"></div>
+            </div>
+            
+            <button class="download-btn" id="downloadBtn">
+                📥 Download Video with Translated Audio
+            </button>
+        </div>
+        
+        <div class="nav-links">
+            <a href="index.html">← Back to Real-time Translation</a>
+        </div>
+    </div>
+    
+    <script src="video.js"></script>
+</body>
+</html>

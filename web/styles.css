@@ -1,0 +1,592 @@
+/* ============================================
+   Realtime Caption Translator - Unified Styles
+   ============================================ */
+
+/* CSS Variables for consistent theming */
+:root {
+    /* Color Palette */
+    --primary-color: #667eea;
+    --primary-dark: #764ba2;
+    --secondary-color: #10b981;
+    --secondary-dark: #059669;
+    --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    
+    /* Neutral Colors */
+    --text-primary: #333;
+    --text-secondary: #666;
+    --text-tertiary: #999;
+    --border-color: #e0e0e0;
+    --border-light: #ddd;
+    
+    /* Background Colors */
+    --bg-white: #ffffff;
+    --bg-light: #f8f9ff;
+    --bg-gray: #f5f5f5;
+    --bg-hover: #f0f2ff;
+    
+    /* Spacing */
+    --spacing-xs: 5px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 20px;
+    --spacing-2xl: 30px;
+    --spacing-3xl: 40px;
+    
+    /* Border Radius */
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 15px;
+    --radius-xl: 20px;
+    
+    /* Shadows */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.15);
+    --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.3);
+    
+    /* Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+}
+
+/* ============================================
+   Global Resets & Base Styles
+   ============================================ */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+h1 {
+    font-size: 2em;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+
+h2 {
+    font-size: 1.5em;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-lg);
+    font-weight: 600;
+}
+
+h3 {
+    font-size: 1.2em;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    font-weight: 600;
+}
+
+.subtitle {
+    color: var(--text-secondary);
+    font-size: 1.1em;
+    margin-bottom: var(--spacing-2xl);
+}
+
+/* ============================================
+   Layout Components
+   ============================================ */
+
+/* Full-page gradient background (for video upload page) */
+.page-gradient {
+    background: var(--bg-gradient);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: var(--spacing-xl);
+}
+
+/* Simple page layout (for realtime & debug pages) */
+.page-simple {
+    background: var(--bg-white);
+    padding: var(--spacing-lg);
+    min-height: 100vh;
+}
+
+/* Container */
+.container {
+    background: var(--bg-white);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    max-width: 800px;
+    width: 100%;
+    padding: var(--spacing-3xl);
+}
+
+/* Row layout for side-by-side columns */
+.row {
+    display: flex;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+
+/* Column in a row */
+.col {
+    flex: 1;
+    border: 1px solid var(--border-light);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-sm);
+    min-height: 240px;
+    background: var(--bg-white);
+}
+
+/* ============================================
+   Form Elements
+   ============================================ */
+
+/* Labels */
+label {
+    display: inline-block;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Select dropdowns */
+select {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 1em;
+    background: var(--bg-white);
+    cursor: pointer;
+    transition: border-color var(--transition-normal);
+    font-family: inherit;
+}
+
+select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+/* Inline select (for simpler pages) */
+select.inline {
+    width: auto;
+    padding: 6px var(--spacing-md);
+    margin: 0 var(--spacing-sm);
+}
+
+/* Language selector section */
+.language-selector {
+    margin-bottom: var(--spacing-xl);
+}
+
+.language-selector label {
+    display: block;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Checkbox container */
+.checkbox-container {
+    margin-bottom: var(--spacing-xl);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.checkbox-container input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.checkbox-container label {
+    margin: 0;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+button {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    font-family: inherit;
+}
+
+/* Primary button */
+.btn-primary, button.upload-btn {
+    background: var(--bg-gradient);
+    color: white;
+    padding: 15px var(--spacing-xl);
+    font-size: 1.1em;
+}
+
+.btn-primary:hover:not(:disabled), button.upload-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+}
+
+.btn-primary:disabled, button.upload-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Secondary button */
+.btn-secondary, button.clear-btn {
+    background: #f0f0f0;
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover, button.clear-btn:hover {
+    background: #e0e0e0;
+}
+
+/* Success button */
+.btn-success, .download-btn {
+    background: var(--success-gradient);
+    color: white;
+    padding: 15px var(--spacing-xl);
+    font-size: 1.1em;
+}
+
+.btn-success:hover, .download-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
+}
+
+/* Button group */
+.button-group {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-xl);
+}
+
+.button-group button {
+    flex: 1;
+}
+
+/* Inline buttons (for simpler pages) */
+.inline-buttons button {
+    margin-right: var(--spacing-sm);
+}
+
+/* ============================================
+   Upload Area
+   ============================================ */
+.upload-area {
+    border: 3px dashed var(--primary-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-3xl);
+    text-align: center;
+    background: var(--bg-light);
+    transition: all var(--transition-normal);
+    cursor: pointer;
+    margin-bottom: var(--spacing-xl);
+}
+
+.upload-area:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-dark);
+}
+
+.upload-area.dragging {
+    background: #e8ebff;
+    border-color: var(--primary-dark);
+    transform: scale(1.02);
+}
+
+.upload-icon {
+    font-size: 3em;
+    margin-bottom: 15px;
+}
+
+.upload-text {
+    color: var(--primary-color);
+    font-size: 1.2em;
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+}
+
+.upload-hint {
+    color: var(--text-tertiary);
+    font-size: 0.9em;
+}
+
+input[type="file"] {
+    display: none;
+}
+
+/* File info display */
+.file-info {
+    background: var(--bg-light);
+    border-radius: var(--radius-md);
+    padding: 15px;
+    margin-bottom: var(--spacing-xl);
+    display: none;
+}
+
+.file-info.show {
+    display: block;
+}
+
+.file-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.file-size {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+/* ============================================
+   Progress Indicators
+   ============================================ */
+.progress-container {
+    display: none;
+    margin-bottom: var(--spacing-xl);
+}
+
+.progress-container.show {
+    display: block;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-bottom: var(--spacing-md);
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--bg-gradient);
+    width: 0%;
+    transition: width var(--transition-normal);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.progress-text {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+/* Status indicator */
+.status {
+    display: inline-block;
+    margin-left: var(--spacing-md);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* ============================================
+   Content Display Components
+   ============================================ */
+
+/* Line of text in results */
+.line {
+    margin: 6px 0;
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    transition: background-color var(--transition-fast);
+}
+
+.line:hover {
+    background: var(--bg-light);
+}
+
+/* Partial/interim text styling */
+.partial {
+    opacity: 0.6;
+    font-style: italic;
+    color: var(--text-secondary);
+}
+
+/* Results section */
+.results {
+    display: none;
+}
+
+.results.show {
+    display: block;
+}
+
+.result-section {
+    background: var(--bg-light);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-xl);
+    margin-bottom: 15px;
+}
+
+.result-title {
+    color: var(--primary-color);
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+    font-size: 1.1em;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.result-content {
+    color: var(--text-primary);
+    line-height: 1.6;
+    font-size: 1.05em;
+}
+
+/* ============================================
+   Navigation & Links
+   ============================================ */
+.nav-links {
+    text-align: center;
+    margin-top: var(--spacing-2xl);
+    padding-top: var(--spacing-xl);
+    border-top: 2px solid #f0f0f0;
+}
+
+.nav-links a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-normal);
+    font-size: 1.05em;
+}
+
+.nav-links a:hover {
+    color: var(--primary-dark);
+}
+
+/* Divider with link */
+.divider-link {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid var(--border-light);
+}
+
+/* ============================================
+   Messages & Alerts
+   ============================================ */
+
+/* Error message */
+.error-message {
+    background: #fee;
+    border: 2px solid #fcc;
+    border-radius: var(--radius-md);
+    padding: 15px;
+    color: #c00;
+    margin-bottom: var(--spacing-xl);
+    display: none;
+}
+
+.error-message.show {
+    display: block;
+}
+
+/* Info message */
+.info-message {
+    background: var(--bg-light);
+    border: 2px solid var(--primary-color);
+    border-radius: var(--radius-md);
+    padding: 15px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xl);
+}
+
+/* ============================================
+   Debug/Log Components
+   ============================================ */
+#log {
+    border: 1px solid var(--border-color);
+    padding: var(--spacing-md);
+    height: 400px;
+    overflow-y: scroll;
+    background: var(--bg-gray);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    border-radius: var(--radius-sm);
+}
+
+.log-entry {
+    margin: 2px 0;
+    padding: 2px 0;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+.text-center {
+    text-align: center;
+}
+
+.mb-sm { margin-bottom: var(--spacing-sm); }
+.mb-md { margin-bottom: var(--spacing-md); }
+.mb-lg { margin-bottom: var(--spacing-lg); }
+.mb-xl { margin-bottom: var(--spacing-xl); }
+
+.mt-sm { margin-top: var(--spacing-sm); }
+.mt-md { margin-top: var(--spacing-md); }
+.mt-lg { margin-top: var(--spacing-lg); }
+.mt-xl { margin-top: var(--spacing-xl); }
+
+.hidden {
+    display: none !important;
+}
+
+.show {
+    display: block !important;
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+@media (max-width: 768px) {
+    .row {
+        flex-direction: column;
+    }
+    
+    .container {
+        padding: var(--spacing-xl);
+    }
+    
+    h1 {
+        font-size: 1.5em;
+    }
+    
+    h2 {
+        font-size: 1.3em;
+    }
+    
+    .button-group {
+        flex-direction: column;
+    }
+    
+    .page-gradient {
+        padding: var(--spacing-md);
+    }
+}
