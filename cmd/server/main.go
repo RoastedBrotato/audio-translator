@@ -132,8 +132,8 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 	log.Printf("Transcription: %s", transcription)
 
 	// Translate transcription
-	log.Printf("Translating to %s...", targetLang)
-	translation, err := translator.Translate(transcription, targetLang)
+	log.Printf("Translating from %s to %s...", sourceLang, targetLang)
+	translation, err := translator.TranslateWithSource(transcription, sourceLang, targetLang)
 	if err != nil {
 		log.Printf("Error translating: %v", err)
 		json.NewEncoder(w).Encode(videoUploadResponse{

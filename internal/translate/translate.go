@@ -10,6 +10,7 @@ import (
 
 type Translator interface {
 	Translate(text, targetLang string) (string, error)
+	TranslateWithSource(text, sourceLang, targetLang string) (string, error)
 }
 
 type Stub struct{}
@@ -17,6 +18,10 @@ type Stub struct{}
 func (s Stub) Translate(text, targetLang string) (string, error) {
 	// MVP: just echo. Replace with real translator later.
 	return "[" + targetLang + "] " + text, nil
+}
+
+func (s Stub) TranslateWithSource(text, sourceLang, targetLang string) (string, error) {
+	return "[" + sourceLang + " -> " + targetLang + "] " + text, nil
 }
 
 // HTTPTranslator calls a translation service over HTTP
@@ -36,13 +41,18 @@ type translateResponse struct {
 }
 
 func (h *HTTPTranslator) Translate(text, targetLang string) (string, error) {
+	// Default to auto-detect source language
+	return h.TranslateWithSource(text, "auto", targetLang)
+}
+
+func (h *HTTPTranslator) TranslateWithSource(text, sourceLang, targetLang string) (string, error) {
 	if text == "" {
 		return "", nil
 	}
 
 	req := translateRequest{
 		Text:       text,
-		SourceLang: "en", // We're assuming English source for now
+		SourceLang: sourceLang,
 		TargetLang: targetLang,
 	}
 
