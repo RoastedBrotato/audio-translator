@@ -150,19 +150,6 @@ http://localhost:8080
 - Audio replacement - replace original audio with translated speech
 - Download processed video with translated audio
 
-**Voice Cloning Limitations:**
-- Current implementation uses gTTS (Google Text-to-Speech) which provides standard voices
-- True voice cloning requires advanced ML models:
-  - **Coqui XTTS v2**: Requires Python 3.11 or older (Ubuntu 24.04 has Python 3.12)
-  - **ElevenLabs API**: Requires paid API key and credits
-  - **StyleTTS2**: Experimental and complex to set up
-
-**Future Enhancements:**
-To enable true voice cloning, you can:
-1. Install Python 3.11 in a separate environment (using pyenv or conda)
-2. Use ElevenLabs API with an API key (set `ELEVENLABS_API_KEY` environment variable)
-3. Explore StyleTTS2 or other open-source alternatives
-
 Supported video formats: MP4, AVI, MOV, MKV, WebM (max 500MB)
 
 ## Configuration
