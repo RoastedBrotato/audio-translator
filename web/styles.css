@@ -395,6 +395,17 @@ input[type="file"] {
     text-align: center;
     color: var(--text-secondary);
     font-size: 0.9em;
+    margin-top: var(--spacing-xs);
+}
+
+.progress-stage {
+    text-align: center;
+    color: var(--primary-color);
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-top: var(--spacing-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 /* Status indicator */

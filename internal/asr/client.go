@@ -119,3 +119,40 @@ func (c *Client) TranscribeWAV(wavData []byte, language string) (string, error) 
 	}
 	return r.Text, nil
 }
+
+// DetectLanguageResponse represents the response from language detection
+type DetectLanguageResponse struct {
+	Language string `json:"language"`
+	Text     string `json:"text"`
+	Segments []struct {
+		Start    float64 `json:"start"`
+		End      float64 `json:"end"`
+		Text     string  `json:"text"`
+		Language string  `json:"language,omitempty"`
+	} `json:"segments,omitempty"`
+}
+
+// DetectLanguage detects the language of the audio without requiring a language hint
+func (c *Client) DetectLanguage(wavData []byte) (string, error) {
+	req, err := http.NewRequest("POST", c.BaseURL+"/detect-language", bytes.NewReader(wavData))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "audio/wav")
+
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode >= 300 {
+		return "", fmt.Errorf("language detection status: %s", res.Status)
+	}
+
+	var r DetectLanguageResponse
+	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+		return "", err
+	}
+	return r.Language, nil
+}

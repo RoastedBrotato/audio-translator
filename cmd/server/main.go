@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"realtime-caption-translator/internal/asr"
+	"realtime-caption-translator/internal/progress"
 	"realtime-caption-translator/internal/session"
 	"realtime-caption-translator/internal/translate"
 	"realtime-caption-translator/internal/tts"
@@ -25,20 +27,22 @@ var upgrader = websocket.Upgrader{
 
 type videoUploadResponse struct {
 	Success       bool    `json:"success"`
+	SessionID     string  `json:"sessionId,omitempty"`
 	Transcription string  `json:"transcription,omitempty"`
 	Translation   string  `json:"translation,omitempty"`
 	Duration      float64 `json:"duration,omitempty"`
 	VideoPath     string  `json:"videoPath,omitempty"`
+	DetectedLang  string  `json:"detectedLang,omitempty"`
 	Error         string  `json:"error,omitempty"`
 }
 
-func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, ttsClient *tts.Client) {
+func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, ttsClient *tts.Client, progressMgr *progress.Manager) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Parse multipart form (max 500MB)
+	// Parse multipart form first (max 500MB)
 	if err := r.ParseMultipartForm(500 << 20); err != nil {
 		log.Printf("Error parsing form: %v", err)
 		json.NewEncoder(w).Encode(videoUploadResponse{
@@ -57,8 +61,11 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 		})
 		return
 	}
-	defer file.Close()
 
+	// Generate session ID for progress tracking
+	sessionID := fmt.Sprintf("upload_%d", time.Now().UnixNano())
+
+	// Read form values before starting goroutine
 	targetLang := r.FormValue("targetLang")
 	if targetLang == "" {
 		targetLang = "ar" // Default to Arabic
@@ -68,6 +75,7 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 	if sourceLang == "" {
 		sourceLang = "en" // Default to English
 	}
+	autoDetect := sourceLang == "auto" || sourceLang == "detect"
 
 	// Check if user wants translated audio
 	generateTTS := r.FormValue("generateTTS") == "true"
@@ -75,141 +83,168 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 	// Check if user wants voice cloning
 	cloneVoice := r.FormValue("cloneVoice") == "true"
 
-	log.Printf("Processing video: %s (%.2f MB), target language: %s", header.Filename, float64(header.Size)/(1024*1024), targetLang)
+	// Send initial response with session ID immediately
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(videoUploadResponse{
+		Success:   true,
+		SessionID: sessionID,
+	})
 
-	// Save uploaded file temporarily
-	tempDir := processor.TempDir
-	tempVideoPath := filepath.Join(tempDir, fmt.Sprintf("upload_%d_%s", time.Now().Unix(), header.Filename))
-	defer os.Remove(tempVideoPath)
+	// Process asynchronously
+	go func() {
+		defer file.Close()
+		tracker := progressMgr.NewTracker(sessionID)
 
-	outFile, err := os.Create(tempVideoPath)
-	if err != nil {
-		log.Printf("Error creating temp file: %v", err)
-		json.NewEncoder(w).Encode(videoUploadResponse{
-			Success: false,
-			Error:   "Failed to save video",
-		})
-		return
-	}
+		tracker.Update("upload", 10, fmt.Sprintf("Received %s (%.2f MB)", header.Filename, float64(header.Size)/(1024*1024)))
 
-	if _, err := io.Copy(outFile, file); err != nil {
-		outFile.Close()
-		log.Printf("Error copying file: %v", err)
-		json.NewEncoder(w).Encode(videoUploadResponse{
-			Success: false,
-			Error:   "Failed to save video",
-		})
-		return
-	}
-	outFile.Close()
+		log.Printf("Processing video: %s (%.2f MB), target language: %s", header.Filename, float64(header.Size)/(1024*1024), targetLang)
 
-	// Extract audio
-	log.Println("Extracting audio from video...")
-	audioResult, err := processor.ExtractAudio(tempVideoPath)
-	if err != nil {
-		log.Printf("Error extracting audio: %v", err)
-		json.NewEncoder(w).Encode(videoUploadResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to extract audio: %v", err),
-		})
-		return
-	}
+		tracker.Update("saving", 15, "Saving video file...")
 
-	log.Printf("Audio extracted: %.2f seconds, %d bytes", audioResult.Duration, len(audioResult.AudioData))
+		// Save uploaded file temporarily
+		tempDir := processor.TempDir
+		tempVideoPath := filepath.Join(tempDir, fmt.Sprintf("upload_%d_%s", time.Now().Unix(), header.Filename))
+		defer os.Remove(tempVideoPath)
 
-	// Transcribe audio
-	log.Println("Transcribing audio...")
-	transcription, err := asrClient.TranscribeWAV(audioResult.AudioData, sourceLang)
-	if err != nil {
-		log.Printf("Error transcribing: %v", err)
-		json.NewEncoder(w).Encode(videoUploadResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to transcribe audio: %v", err),
-		})
-		return
-	}
-
-	log.Printf("Transcription: %s", transcription)
-
-	// Translate transcription
-	log.Printf("Translating from %s to %s...", sourceLang, targetLang)
-	translation, err := translator.TranslateWithSource(transcription, sourceLang, targetLang)
-	if err != nil {
-		log.Printf("Error translating: %v", err)
-		json.NewEncoder(w).Encode(videoUploadResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to translate: %v", err),
-		})
-		return
-	}
-
-	log.Printf("Translation: %s", translation)
-
-	// Generate TTS and replace audio if requested
-	var videoPath string
-	if generateTTS && translation != "" {
-		var ttsAudio []byte
-		var err error
-
-		if cloneVoice {
-			// Use voice cloning with original audio as reference
-			log.Printf("Generating TTS with voice cloning...")
-			ttsAudio, err = ttsClient.SynthesizeWithVoice(translation, targetLang, audioResult.AudioData)
-			if err != nil {
-				log.Printf("Error with voice cloning, falling back to standard TTS: %v", err)
-				// Fallback to standard TTS if voice cloning fails
-				ttsAudio, err = ttsClient.Synthesize(translation, targetLang)
-				if err != nil {
-					log.Printf("Error generating TTS: %v", err)
-					json.NewEncoder(w).Encode(videoUploadResponse{
-						Success: false,
-						Error:   fmt.Sprintf("Failed to generate TTS: %v", err),
-					})
-					return
-				}
-			}
-		} else {
-			// Standard TTS without voice cloning
-			log.Printf("Generating TTS audio for translation...")
-			ttsAudio, err = ttsClient.Synthesize(translation, targetLang)
-			if err != nil {
-				log.Printf("Error generating TTS: %v", err)
-				json.NewEncoder(w).Encode(videoUploadResponse{
-					Success: false,
-					Error:   fmt.Sprintf("Failed to generate TTS: %v", err),
-				})
-				return
-			}
-		}
-
-		log.Printf("Generated TTS audio: %d bytes", len(ttsAudio))
-
-		// Replace audio in video
-		log.Println("Replacing audio in video...")
-		outputVideoPath, err := processor.ReplaceAudio(tempVideoPath, ttsAudio)
+		outFile, err := os.Create(tempVideoPath)
 		if err != nil {
-			log.Printf("Error replacing audio: %v", err)
-			json.NewEncoder(w).Encode(videoUploadResponse{
-				Success: false,
-				Error:   fmt.Sprintf("Failed to replace audio: %v", err),
-			})
+			log.Printf("Error creating temp file: %v", err)
+			tracker.Error("saving", "Failed to save video", err)
 			return
 		}
 
-		// Store the path for download (relative to temp dir)
-		videoPath = filepath.Base(outputVideoPath)
-		log.Printf("Video with translated audio ready: %s", videoPath)
-	}
+		if _, err := io.Copy(outFile, file); err != nil {
+			outFile.Close()
+			log.Printf("Error copying file: %v", err)
+			tracker.Error("saving", "Failed to save video", err)
+			return
+		}
+		outFile.Close()
 
-	// Send response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(videoUploadResponse{
-		Success:       true,
-		Transcription: transcription,
-		Translation:   translation,
-		Duration:      audioResult.Duration,
-		VideoPath:     videoPath,
-	})
+		tracker.Update("extraction", 25, "Extracting audio from video...")
+
+		// Extract audio
+		log.Println("Extracting audio from video...")
+		audioResult, err := processor.ExtractAudio(tempVideoPath)
+		if err != nil {
+			log.Printf("Error extracting audio: %v", err)
+			tracker.Error("extraction", "Failed to extract audio", err)
+			return
+		}
+
+		log.Printf("Audio extracted: %.2f seconds, %d bytes", audioResult.Duration, len(audioResult.AudioData))
+		tracker.Update("extraction", 35, fmt.Sprintf("Audio extracted: %.2f seconds", audioResult.Duration))
+
+		// Auto-detect language if requested
+		var detectedLang string
+		if autoDetect {
+			tracker.Update("detection", 40, "Detecting language...")
+			log.Println("Auto-detecting language...")
+			detectedLang, err = asrClient.DetectLanguage(audioResult.AudioData)
+			if err != nil {
+				log.Printf("Error detecting language: %v, defaulting to 'en'", err)
+				detectedLang = "en"
+				sourceLang = "en" // Update sourceLang for transcription
+				tracker.Update("detection", 45, "Language detection failed, using English")
+			} else {
+				log.Printf("Detected language: %s", detectedLang)
+				sourceLang = detectedLang
+				tracker.Update("detection", 45, fmt.Sprintf("Detected language: %s", detectedLang))
+			}
+		}
+
+		// Transcribe audio
+		tracker.Update("transcription", 50, "Transcribing audio...")
+		log.Println("Transcribing audio...")
+		transcription, err := asrClient.TranscribeWAV(audioResult.AudioData, sourceLang)
+		if err != nil {
+			log.Printf("Error transcribing: %v", err)
+			tracker.Error("transcription", "Failed to transcribe audio", err)
+			return
+		}
+
+		log.Printf("Transcription: %s", transcription)
+		tracker.Update("transcription", 60, "Transcription complete")
+
+		// Translate transcription
+		tracker.Update("translation", 65, fmt.Sprintf("Translating from %s to %s...", sourceLang, targetLang))
+		log.Printf("Translating from %s to %s...", sourceLang, targetLang)
+		translation, err := translator.TranslateWithSource(transcription, sourceLang, targetLang)
+		if err != nil {
+			log.Printf("Error translating: %v", err)
+			tracker.Error("translation", "Failed to translate", err)
+			return
+		}
+
+		log.Printf("Translation: %s", translation)
+		tracker.Update("translation", 70, "Translation complete")
+
+		// Generate TTS and replace audio if requested
+		var videoPath string
+		if generateTTS && translation != "" {
+			var ttsAudio []byte
+			var err error
+
+			if cloneVoice {
+				// Use voice cloning with original audio as reference
+				tracker.Update("tts", 75, "Generating TTS with voice cloning...")
+				log.Printf("Generating TTS with voice cloning...")
+				ttsAudio, err = ttsClient.SynthesizeWithVoice(translation, targetLang, audioResult.AudioData)
+				if err != nil {
+					log.Printf("Error with voice cloning, falling back to standard TTS: %v", err)
+					tracker.Update("tts", 75, "Voice cloning failed, using standard TTS...")
+					// Fallback to standard TTS if voice cloning fails
+					ttsAudio, err = ttsClient.Synthesize(translation, targetLang)
+					if err != nil {
+						log.Printf("Error generating TTS: %v", err)
+						tracker.Error("tts", "Failed to generate TTS", err)
+						return
+					}
+				}
+			} else {
+				// Standard TTS without voice cloning
+				tracker.Update("tts", 75, "Generating TTS audio...")
+				log.Printf("Generating TTS audio for translation...")
+				ttsAudio, err = ttsClient.Synthesize(translation, targetLang)
+				if err != nil {
+					log.Printf("Error generating TTS: %v", err)
+					tracker.Error("tts", "Failed to generate TTS", err)
+					return
+				}
+			}
+
+			log.Printf("Generated TTS audio: %d bytes", len(ttsAudio))
+			tracker.Update("tts", 85, "TTS generation complete")
+
+			// Replace audio in video
+			tracker.Update("processing", 90, "Replacing audio in video...")
+			log.Println("Replacing audio in video...")
+			outputVideoPath, err := processor.ReplaceAudio(tempVideoPath, ttsAudio)
+			if err != nil {
+				log.Printf("Error replacing audio: %v", err)
+				tracker.Error("processing", "Failed to replace audio", err)
+				return
+			}
+
+			// Store the path for download (relative to temp dir)
+			videoPath = filepath.Base(outputVideoPath)
+			log.Printf("Video with translated audio ready: %s", videoPath)
+			tracker.Update("processing", 95, "Video processing complete")
+		}
+
+		// Send completion with results
+		results := map[string]interface{}{
+			"transcription": transcription,
+			"translation":   translation,
+			"duration":      audioResult.Duration,
+			"videoPath":     videoPath,
+		}
+		if detectedLang != "" {
+			results["detectedLang"] = detectedLang
+		}
+		tracker.CompleteWithResults("Video processing completed successfully", results)
+		log.Printf("Video processing completed for session %s", sessionID)
+	}() // End of goroutine
 }
 
 func main() {
@@ -225,12 +260,14 @@ func main() {
 	}
 
 	srv := session.NewServer(session.Config{
-		ASRBaseURL:       "http://127.0.0.1:8003",
-		TranslateBaseURL: "http://127.0.0.1:8004",
-		PollInterval:     800 * time.Millisecond,
-		WindowSeconds:    8,
-		FinalizeAfter:    500 * time.Millisecond, // Reduced from 900ms for faster finalization
+		ASRBaseURL:    "http://127.0.0.1:8003",
+		PollInterval:  800 * time.Millisecond,
+		WindowSeconds: 8,
+		FinalizeAfter: 500 * time.Millisecond, // Reduced from 900ms for faster finalization
 	})
+
+	// Create progress manager
+	progressMgr := progress.NewManager()
 
 	// Create video processor
 	videoProcessor := video.NewProcessor(tempDir)
@@ -257,7 +294,38 @@ func main() {
 	})
 
 	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
-		handleVideoUpload(w, r, videoProcessor, asrClient, translator, ttsClient)
+		handleVideoUpload(w, r, videoProcessor, asrClient, translator, ttsClient, progressMgr)
+	})
+
+	http.HandleFunc("/ws/progress/", func(w http.ResponseWriter, r *http.Request) {
+		// Extract session ID from URL path
+		pathParts := strings.Split(r.URL.Path, "/")
+		if len(pathParts) < 4 {
+			http.Error(w, "Invalid session ID", http.StatusBadRequest)
+			return
+		}
+		sessionID := pathParts[3]
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println("Progress WebSocket upgrade error:", err)
+			return
+		}
+		defer conn.Close()
+
+		progressMgr.Subscribe(sessionID, conn)
+		defer progressMgr.Unsubscribe(sessionID, conn)
+
+		log.Printf("Progress WebSocket connected for session: %s", sessionID)
+
+		// Keep connection alive and wait for messages
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("Progress WebSocket read error: %v", err)
+				break
+			}
+		}
 	})
 
 	http.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {

@@ -92,3 +92,44 @@ async def transcribe(req: Request):
     elapsed = time.time() - start_time
     print(f"Transcribed in {elapsed:.2f}s: '{text}'")  # Debug logging
     return {"text": text}
+
+
+@app.post("/detect-language")
+async def detect_language(req: Request):
+    """Detect the language of the audio without transcribing."""
+    wav_bytes = await req.body()
+    audio, sr = wav_bytes_to_float32_mono(wav_bytes)
+
+    if sr != 16000:
+        raise HTTPException(status_code=400, detail=f"Expected 16000 Hz WAV, got {sr}")
+
+    import time
+    start_time = time.time()
+    
+    # Use Whisper's detect_language function for faster detection
+    # We'll transcribe a small portion to detect language
+    audio_segment = audio[:16000 * 30]  # Use first 30 seconds max
+    
+    result = model.transcribe(
+        audio_segment,
+        language=None,  # Let Whisper auto-detect
+        task="transcribe",
+        fp16=False,
+        beam_size=1,
+        best_of=1,
+        temperature=0,
+        condition_on_previous_text=False
+    )
+    
+    detected_language = result.get("language", "en")
+    text = result["text"].strip()
+    elapsed = time.time() - start_time
+    
+    print(f"Detected language: {detected_language} in {elapsed:.2f}s")
+    
+    return {
+        "language": detected_language,
+        "text": text,
+        "segments": result.get("segments", [])
+    }
+
