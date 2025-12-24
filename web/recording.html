@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Recording Translation</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .recording-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: red;
+      animation: pulse 1.5s infinite;
+      margin-right: 8px;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .progress-container {
+      width: 100%;
+      background-color: #e0e0e0;
+      border-radius: 8px;
+      margin: 20px 0;
+      height: 30px;
+      position: relative;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      background-color: #4CAF50;
+      border-radius: 8px;
+      transition: width 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+    }
+    .transcript-container {
+      max-height: 500px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 20px;
+      background-color: #f9f9f9;
+    }
+    .transcript-item {
+      margin-bottom: 20px;
+      padding: 12px;
+      background-color: white;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .transcript-label {
+      font-weight: bold;
+      color: #666;
+      font-size: 0.85em;
+      margin-bottom: 5px;
+    }
+    .transcript-text {
+      font-size: 1em;
+      line-height: 1.5;
+      unicode-bidi: plaintext;
+    }
+    .download-section {
+      margin-top: 20px;
+      padding: 20px;
+      background-color: #e8f5e9;
+      border-radius: 8px;
+      display: none;
+    }
+    .chunk-counter {
+      font-size: 0.9em;
+      color: #666;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body class="page-simple">
+  <h2>🎙️ Recording Translation</h2>
+
+  <div class="inline-buttons mb-lg">
+    <button id="btnStart" class="btn-primary">
+      <span id="recordingIndicator"></span>
+      Start Recording
+    </button>
+    <button id="btnStop" class="btn-secondary" disabled>Stop Recording</button>
+
+    <label style="margin-left: 20px;">Source Lang:</label>
+    <select id="sourceLang" class="inline">
+      <option value="auto">Auto-detect</option>
+      <option value="en">English</option>
+      <option value="ar">العربية (Arabic)</option>
+      <option value="ur" selected>اردو (Urdu)</option>
+      <option value="hi">हिन्दी (Hindi)</option>
+      <option value="ml">മലയാളം (Malayalam)</option>
+      <option value="te">తెలుగు (Telugu)</option>
+      <option value="ta">தமிழ் (Tamil)</option>
+      <option value="bn">বাংলা (Bengali)</option>
+      <option value="fr">Français (French)</option>
+      <option value="es">Español (Spanish)</option>
+      <option value="de">Deutsch (German)</option>
+      <option value="zh">中文 (Chinese)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="ko">한국어 (Korean)</option>
+    </select>
+
+    <label style="margin-left: 12px;">Target:</label>
+    <select id="targetLang" class="inline">
+      <option value="en" selected>English</option>
+      <option value="ar">العربية (Arabic)</option>
+      <option value="ur">اردو (Urdu)</option>
+      <option value="hi">हिन्दी (Hindi)</option>
+      <option value="ml">മലയാളം (Malayalam)</option>
+      <option value="te">తెలుగు (Telugu)</option>
+      <option value="ta">தமிழ் (Tamil)</option>
+      <option value="bn">বাংলা (Bengali)</option>
+      <option value="fr">Français (French)</option>
+      <option value="es">Español (Spanish)</option>
+      <option value="de">Deutsch (German)</option>
+      <option value="zh">中文 (Chinese)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="ko">한국어 (Korean)</option>
+    </select>
+
+    <span id="status" class="status">Ready</span>
+    <span id="chunkCounter" class="chunk-counter"></span>
+  </div>
+
+  <div class="progress-container" id="progressContainer">
+    <div class="progress-bar" id="progressBar">0%</div>
+  </div>
+
+  <div class="transcript-container" id="transcriptContainer">
+    <p style="text-align: center; color: #999;">Translations will appear here as they are processed...</p>
+  </div>
+
+  <div class="download-section" id="downloadSection">
+    <h3>✅ Recording Complete!</h3>
+    <p>Your transcript is ready for download.</p>
+    <button id="btnDownloadTxt" class="btn-primary">Download as Text</button>
+    <button id="btnDownloadJson" class="btn-secondary">Download as JSON</button>
+  </div>
+
+  <div class="divider-link">
+    <p class="text-center">
+      <a href="index.html">← Back to Real-time Translator</a> | 
+      <a href="video.html">🎬 Video Upload</a>
+    </p>
+  </div>
+
+  <script src="recording.js"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -295,6 +296,129 @@ func main() {
 
 	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
 		handleVideoUpload(w, r, videoProcessor, asrClient, translator, ttsClient, progressMgr)
+	})
+
+	// Recording session management
+	var (
+		recordingMu       sync.Mutex
+		recordingSessions = make(map[string]*session.RecordingSession)
+	)
+
+	http.HandleFunc("/recording/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			SessionID  string `json:"sessionId"`
+			SourceLang string `json:"sourceLang"`
+			TargetLang string `json:"targetLang"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Create recording session
+		recSession := session.NewRecordingSession(session.RecordingConfig{
+			SessionID:     req.SessionID,
+			SourceLang:    req.SourceLang,
+			TargetLang:    req.TargetLang,
+			ASRClient:     asrClient,
+			Translator:    translator,
+			ProgressMgr:   progressMgr,
+			SampleRate:    16000,
+			WindowSeconds: 8,
+		})
+
+		recordingMu.Lock()
+		recordingSessions[req.SessionID] = recSession
+		recordingMu.Unlock()
+
+		log.Printf("Recording session started: %s", req.SessionID)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"sessionId": req.SessionID,
+		})
+	})
+
+	http.HandleFunc("/recording/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			SessionID string `json:"sessionId"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		recordingMu.Lock()
+		recSession, exists := recordingSessions[req.SessionID]
+		recordingMu.Unlock()
+
+		if !exists {
+			http.Error(w, "Session not found", http.StatusNotFound)
+			return
+		}
+
+		totalChunks, err := recSession.Stop()
+		if err != nil {
+			http.Error(w, "Failed to stop session", http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("Recording session stopped: %s, total chunks: %d", req.SessionID, totalChunks)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"totalChunks": totalChunks,
+		})
+	})
+
+	http.HandleFunc("/ws/recording/", func(w http.ResponseWriter, r *http.Request) {
+		pathParts := strings.Split(r.URL.Path, "/")
+		if len(pathParts) < 4 {
+			http.Error(w, "Invalid session ID", http.StatusBadRequest)
+			return
+		}
+		sessionID := pathParts[3]
+
+		recordingMu.Lock()
+		recSession, exists := recordingSessions[sessionID]
+		recordingMu.Unlock()
+
+		if !exists {
+			http.Error(w, "Session not found", http.StatusNotFound)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println("Recording WebSocket upgrade error:", err)
+			return
+		}
+
+		log.Printf("Recording WebSocket connected: %s", sessionID)
+		recSession.HandleWebSocket(conn)
+
+		// Cleanup after session completes
+		go func() {
+			time.Sleep(5 * time.Minute)
+			recordingMu.Lock()
+			delete(recordingSessions, sessionID)
+			recordingMu.Unlock()
+			log.Printf("Recording session cleaned up: %s", sessionID)
+		}()
 	})
 
 	http.HandleFunc("/ws/progress/", func(w http.ResponseWriter, r *http.Request) {

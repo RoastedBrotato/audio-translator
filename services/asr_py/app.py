@@ -20,8 +20,9 @@ app.add_middleware(
 # Pick a model size:
 # - "tiny" = fastest, lower accuracy (~40MB)
 # - "base" = still fast, better accuracy (~75MB)
-# - "small" = good accuracy but slower (~244MB) ← USING THIS FOR BETTER ACCURACY
-MODEL_SIZE = os.getenv("ASR_MODEL", "small")  # Upgraded to "small" for better recognition
+# - "small" = good accuracy (~244MB) - good for real-time
+# - "medium" = better accuracy (~1.42GB) - for recording mode with better Urdu/Hindi support
+MODEL_SIZE = os.getenv("ASR_MODEL", "small")  # Using small for stability
 
 # Load the model
 model = whisper.load_model(MODEL_SIZE)
