@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Live Streaming Captions</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .caption-container {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 40px 20px;
+      min-height: 200px;
+      border-radius: 12px;
+      margin: 20px 0;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    
+    .live-caption {
+      font-size: 28px;
+      color: white;
+      text-align: center;
+      line-height: 1.6;
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .partial-text {
+      opacity: 0.7;
+      font-style: italic;
+    }
+    
+    .final-text {
+      opacity: 1;
+      font-weight: 500;
+    }
+    
+    .translations-container {
+      margin-top: 30px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .translation-item {
+      background: white;
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-left: 4px solid #667eea;
+    }
+    
+    .translation-original {
+      font-size: 18px;
+      color: #333;
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+    
+    .translation-translated {
+      font-size: 16px;
+      color: #666;
+      padding-left: 20px;
+      border-left: 3px solid #e0e0e0;
+    }
+    
+    .recording-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: red;
+      animation: pulse 1.5s infinite;
+      margin-right: 8px;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    
+    .stats {
+      display: flex;
+      justify-content: space-around;
+      margin: 20px 0;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    
+    .stat-item {
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #667eea;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body class="page-simple">
+  <h2>🎙️ Live Streaming Captions</h2>
+  
+  <div class="inline-buttons mb-lg">
+    <button id="btnStart" class="btn-primary">
+      <span id="recordingIndicator"></span>
+      Start Streaming
+    </button>
+    <button id="btnStop" class="btn-secondary" disabled>Stop & Export</button>
+    
+    <label style="margin-left: 20px;">Source:</label>
+    <select id="sourceLang" class="inline">
+      <option value="auto">Auto-detect</option>
+      <option value="en">English</option>
+      <option value="ar">Arabic</option>
+      <option value="ur" selected>Urdu</option>
+      <option value="hi">Hindi</option>
+    </select>
+    
+    <label style="margin-left: 12px;">Target:</label>
+    <select id="targetLang" class="inline">
+      <option value="en" selected>English</option>
+      <option value="ar">Arabic</option>
+      <option value="ur">Urdu</option>
+      <option value="hi">Hindi</option>
+    </select>
+  </div>
+  
+  <div class="stats">
+    <div class="stat-item">
+      <div class="stat-value" id="segmentCount">0</div>
+      <div class="stat-label">Segments</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="translationCount">0</div>
+      <div class="stat-label">Translations</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="duration">0:00</div>
+      <div class="stat-label">Duration</div>
+    </div>
+  </div>
+  
+  <div class="caption-container">
+    <div class="live-caption" id="liveCaption">
+      <span style="opacity: 0.5;">Speak to see live captions...</span>
+    </div>
+  </div>
+  
+  <div class="translations-container" id="translationsContainer">
+    <!-- Translations will appear here -->
+  </div>
+  
+  <div id="downloadSection" style="display: none; margin-top: 20px;">
+    <h3>Export Options</h3>
+    <button onclick="downloadTranscript()" class="btn-primary">Download Transcript</button>
+    <button onclick="downloadJSON()" class="btn-secondary">Download JSON</button>
+  </div>
+  
+  <script src="streaming.js"></script>
+</body>
+</html>

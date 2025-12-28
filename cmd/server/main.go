@@ -473,6 +473,13 @@ func main() {
 		}()
 	})
 
+	// Streaming WebSocket - proxy to ASR streaming service
+	http.HandleFunc("/ws/stream", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Streaming WebSocket connection requested")
+		// Note: Clients should connect directly to ws://localhost:8003/stream
+		http.Error(w, "Connect to ws://localhost:8003/stream", http.StatusOK)
+	})
+
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
