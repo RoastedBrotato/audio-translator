@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <button id="connect">Connect to WebSocket</button>
+    <button id="send">Send Test Data</button>
+    <button id="close">Close</button>
+    <div id="status"></div>
+    <div id="log"></div>
+
+    <script>
+        let ws = null;
+        const status = document.getElementById('status');
+        const log = document.getElementById('log');
+        
+        function addLog(msg) {
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML = `[${time}] ${msg}<br>` + log.innerHTML;
+        }
+        
+        document.getElementById('connect').onclick = () => {
+            addLog('Attempting to connect to ws://localhost:8003/stream?language=en');
+            status.textContent = 'Connecting...';
+            
+            try {
+                ws = new WebSocket('ws://localhost:8003/stream?language=en');
+                
+                ws.onopen = () => {
+                    status.textContent = 'Connected!';
+                    status.style.color = 'green';
+                    addLog('WebSocket connected successfully!');
+                };
+                
+                ws.onmessage = (event) => {
+                    addLog('Received: ' + event.data);
+                };
+                
+                ws.onerror = (error) => {
+                    status.textContent = 'Error!';
+                    status.style.color = 'red';
+                    addLog('WebSocket error: ' + error);
+                    console.error('WebSocket error:', error);
+                };
+                
+                ws.onclose = (event) => {
+                    status.textContent = 'Closed';
+                    status.style.color = 'orange';
+                    addLog(`WebSocket closed: code=${event.code}, reason=${event.reason}`);
+                };
+            } catch (e) {
+                addLog('Exception: ' + e.message);
+                status.textContent = 'Exception!';
+                status.style.color = 'red';
+            }
+        };
+        
+        document.getElementById('send').onclick = () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Send a small test audio buffer (100 samples of silence)
+                const testData = new Int16Array(100);
+                ws.send(testData.buffer);
+                addLog('Sent test data');
+            } else {
+                addLog('WebSocket not connected');
+            }
+        };
+        
+        document.getElementById('close').onclick = () => {
+            if (ws) {
+                ws.close();
+                addLog('Closed WebSocket');
+            }
+        };
+    </script>
+</body>
+</html>

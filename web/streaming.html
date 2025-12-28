@@ -108,7 +108,10 @@
   </style>
 </head>
 <body class="page-simple">
-  <h2>🎙️ Live Streaming Captions</h2>
+  <div style="text-align: center; margin: 20px 0;">
+    <h2 style="margin: 0;">Live Streaming Captions</h2>
+    <p style="opacity: 0.7; margin: 5px 0;">Real-time speech-to-text with high-quality final processing</p>
+  </div>
   
   <div class="inline-buttons mb-lg">
     <button id="btnStart" class="btn-primary">
@@ -160,12 +163,17 @@
     <!-- Translations will appear here -->
   </div>
   
+  <!-- Download Section (hidden until final processing complete) -->
   <div id="downloadSection" style="display: none; margin-top: 20px;">
-    <h3>Export Options</h3>
-    <button onclick="downloadTranscript()" class="btn-primary">Download Transcript</button>
-    <button onclick="downloadJSON()" class="btn-secondary">Download JSON</button>
+    <h3>📥 Download Final Transcript</h3>
+    <p style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 1rem;">
+      High-quality transcription with accurate translations
+    </p>
+    <button onclick="downloadTranscript()" class="btn-primary">📄 Download Transcript</button>
+    <button onclick="downloadJSON()" class="btn-secondary">📋 Download JSON</button>
   </div>
   
+  <script src="navbar.js"></script>
   <script src="streaming.js"></script>
 </body>
 </html>

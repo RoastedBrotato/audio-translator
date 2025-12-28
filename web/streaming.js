@@ -25,30 +25,19 @@ btnStop.addEventListener('click', stopStreaming);
 async function startStreaming() {
   try {
     sessionId = 'stream_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    
-    // Connect to streaming WebSocket (port 8003 for ASR streaming service)
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const lang = sourceLang.value === 'auto' ? 'auto' : sourceLang.value;
-    ws = new WebSocket(`${protocol}//localhost:8003/stream?language=${lang}`);
-    
-    ws.onopen = () => {
-      console.log('Streaming WebSocket connected');
-    };
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleStreamingMessage(data);
-    };
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-    };
-    
-    // Get microphone access
+
+    // Reset UI for new session
+    translationsContainer.innerHTML = '';
+    finalizedSegments = [];
+    currentPartialText = "";
+    segmentCount = 0;
+    translationCount = 0;
+    document.getElementById('segmentCount').textContent = '0';
+    document.getElementById('translationCount').textContent = '0';
+    downloadSection.style.display = 'none';
+    liveCaption.innerHTML = '<span style="opacity: 0.5;">Connecting...</span>';
+
+    // Get microphone access first
     mediaStream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         channelCount: 1,
@@ -69,30 +58,72 @@ async function startStreaming() {
     
     const processor = audioContext.createScriptProcessor(4096, 1, 1);
     
+    let audioChunkCount = 0;
     processor.onaudioprocess = (e) => {
       if (isStreaming && ws && ws.readyState === WebSocket.OPEN) {
         const inputData = e.inputBuffer.getChannelData(0);
         const resampledData = resample(inputData, actualSampleRate, targetSampleRate);
         const pcm16 = floatTo16BitPCM(resampledData);
         ws.send(pcm16);
+
+        // Log every 50 chunks (~1 second)
+        audioChunkCount++;
+        if (audioChunkCount % 50 === 0) {
+          console.log(`Sent ${audioChunkCount} audio chunks, last size: ${pcm16.byteLength} bytes`);
+        }
       }
     };
     
     source.connect(processor);
     processor.connect(audioContext.destination);
     
-    // Update UI
+    // Connect to streaming WebSocket (port 8003 for ASR streaming service)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const lang = sourceLang.value === 'auto' ? 'auto' : sourceLang.value;
+    ws = new WebSocket(`${protocol}//localhost:8003/stream?language=${lang}&session_id=${sessionId}`);
+    
+    // Wait for WebSocket to open before starting streaming
+    await new Promise((resolve, reject) => {
+      ws.onopen = () => {
+        console.log('Streaming WebSocket connected');
+        resolve();
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        reject(new Error('Failed to connect to streaming service'));
+      };
+      
+      // Timeout after 5 seconds
+      setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
+    });
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      handleStreamingMessage(data);
+    };
+    
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+      if (isStreaming) {
+        alert('Connection lost. Please try again.');
+        stopStreaming();
+      }
+    };
+    
+    // Update UI - only after WebSocket is connected
     isStreaming = true;
     btnStart.disabled = true;
     btnStop.disabled = false;
     sourceLang.disabled = true;
     targetLang.disabled = true;
     recordingIndicator.innerHTML = '<span class="recording-indicator"></span>';
-    
+    liveCaption.innerHTML = '<span style="opacity: 0.5;">🎤 Listening... Speak now!</span>';
+
     // Start duration timer
     startTime = Date.now();
     updateDuration();
-    
+
     console.log('Streaming started');
     
   } catch (err) {
@@ -104,7 +135,7 @@ async function startStreaming() {
 async function stopStreaming() {
   try {
     isStreaming = false;
-    
+
     // Stop audio
     if (mediaStream) {
       mediaStream.getTracks().forEach(track => track.stop());
@@ -112,28 +143,27 @@ async function stopStreaming() {
     if (audioContext) {
       await audioContext.close();
     }
-    
+
     // Close WebSocket
     if (ws) {
       ws.close();
     }
-    
+
     // Update UI
     btnStart.disabled = false;
     btnStop.disabled = true;
     sourceLang.disabled = false;
     targetLang.disabled = false;
     recordingIndicator.innerHTML = '';
-    liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. See translations below.</span>';
-    
-    // Show download options
-    downloadSection.style.display = 'block';
-    
-    // TODO: Trigger final high-quality processing
+
+    // Keep download section hidden until final processing is done
+    downloadSection.style.display = 'none';
+
+    // Trigger final high-quality processing
     await triggerFinalProcessing();
-    
+
     console.log('Streaming stopped');
-    
+
   } catch (err) {
     console.error('Error stopping stream:', err);
     alert('Failed to stop streaming: ' + err.message);
@@ -215,9 +245,77 @@ function addTranslationToUI(segment) {
 }
 
 async function triggerFinalProcessing() {
-  // TODO: Send full audio for high-quality re-transcription
-  console.log('Final processing would happen here');
-  console.log(`Collected ${finalizedSegments.length} segments`);
+  console.log('🔄 Fetching high-quality final transcription...');
+  liveCaption.innerHTML = '<span style="opacity: 0.7;">⏳ Processing final high-quality transcription...</span>';
+
+  // Wait a moment for the backend to finish processing
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  try {
+    const response = await fetch(`http://localhost:8003/transcription/${sessionId}`);
+
+    if (!response.ok) {
+      console.warn('No final transcription available yet');
+      // Still show download section with whatever we have
+      downloadSection.style.display = 'block';
+      liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. See translations below.</span>';
+      return;
+    }
+
+    const result = await response.json();
+
+    if (result.success && result.data) {
+      console.log('✅ Received high-quality transcription:', result.data);
+
+      // Update the UI with the high-quality version
+      liveCaption.innerHTML = '<span style="color: #10b981;">✓ High-quality processing complete!</span>';
+
+      // Clear existing translations
+      translationsContainer.innerHTML = '';
+      finalizedSegments = [];
+      segmentCount = 0;
+      translationCount = 0;
+
+      // Process each segment with high-quality transcription
+      for (const segment of result.data.segments) {
+        const index = finalizedSegments.length;
+        finalizedSegments.push({
+          index: index + 1,
+          original: segment.text,
+          timestamp: new Date().toISOString(),
+          start: segment.start,
+          end: segment.end
+        });
+
+        segmentCount++;
+
+        // Translate the improved segment
+        await translateSegment(segment.text, index);
+      }
+
+      document.getElementById('segmentCount').textContent = segmentCount;
+
+      // Show success message
+      liveCaption.innerHTML = '<span style="color: #10b981;">✓ High-quality transcription and translation complete!</span>';
+
+      // Now show the download section
+      downloadSection.style.display = 'block';
+
+      setTimeout(() => {
+        liveCaption.innerHTML = '<span style="opacity: 0.5;">All processing complete. Download your transcript below.</span>';
+      }, 3000);
+
+    } else {
+      // Fallback - show download with current data
+      downloadSection.style.display = 'block';
+      liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. See translations below.</span>';
+    }
+  } catch (err) {
+    console.error('Error fetching final transcription:', err);
+    // Fallback - show download with current data
+    downloadSection.style.display = 'block';
+    liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. See translations below.</span>';
+  }
 }
 
 function updateDuration() {
@@ -232,19 +330,30 @@ function updateDuration() {
 }
 
 function downloadTranscript() {
-  let content = `Live Streaming Transcript\n`;
+  let content = `Live Streaming Transcript (High-Quality Processing)\n`;
   content += `Date: ${new Date().toLocaleString()}\n`;
+  content += `Session ID: ${sessionId}\n`;
   content += `Source: ${sourceLang.value} → Target: ${targetLang.value}\n`;
   content += `Total Segments: ${finalizedSegments.length}\n\n`;
   content += `${'='.repeat(60)}\n\n`;
-  
+
   finalizedSegments.forEach((seg, idx) => {
-    content += `Segment ${idx + 1}:\n`;
+    content += `Segment ${idx + 1}`;
+    if (seg.start !== undefined) {
+      content += ` [${formatTime(seg.start)} → ${formatTime(seg.end)}]`;
+    }
+    content += `:\n`;
     content += `Original: ${seg.original}\n`;
     content += `Translation: ${seg.translation || 'N/A'}\n\n`;
   });
-  
+
   downloadFile(content, `transcript_${sessionId}.txt`, 'text/plain');
+}
+
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 function downloadJSON() {

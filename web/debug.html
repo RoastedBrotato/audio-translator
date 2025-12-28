@@ -4,11 +4,14 @@
   <title>Audio Debug</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    body { font-family: monospace; }
+    #log { font-family: monospace; }
   </style>
 </head>
 <body class="page-simple">
-  <h2>🔧 Audio Capture Debug Tool</h2>
+  <div style="text-align: center; margin: 20px 0;">
+    <h2 style="margin: 0;">Audio Debug Tools</h2>
+    <p style="opacity: 0.7; margin: 5px 0;">Test microphone and audio streaming functionality</p>
+  </div>
   <div class="inline-buttons mb-lg">
     <button id="btnStart" class="btn-primary">Start Capture</button>
     <button id="btnStop" class="btn-secondary" disabled>Stop</button>
@@ -92,5 +95,6 @@
       chunkCount = 0;
     };
   </script>
+  <script src="navbar.js"></script>
 </body>
 </html>
