@@ -708,4 +708,13 @@ async def get_final_transcription(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    # Configure with longer timeouts for audio processing
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8003,
+        timeout_keep_alive=300,  # 5 minutes keep-alive
+        timeout_graceful_shutdown=30,  # 30 seconds for graceful shutdown
+        ws_ping_interval=60,  # Send WebSocket pings every 60 seconds
+        ws_ping_timeout=120  # Wait up to 2 minutes for pong response
+    )

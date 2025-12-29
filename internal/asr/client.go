@@ -17,7 +17,7 @@ type Client struct {
 func New(baseURL string) *Client {
 	return &Client{
 		BaseURL: baseURL,
-		HTTP:    &http.Client{Timeout: 120 * time.Second},
+		HTTP:    &http.Client{Timeout: 600 * time.Second}, // 10 minutes for long audio files
 	}
 }
 

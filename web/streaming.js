@@ -116,7 +116,7 @@ async function startStreaming() {
     btnStart.disabled = true;
     btnStop.disabled = false;
     sourceLang.disabled = true;
-    targetLang.disabled = true;St
+    targetLang.disabled = true;
     recordingIndicator.innerHTML = '<span class="recording-indicator"></span>';
     liveCaption.innerHTML = '<span style="opacity: 0.5;">🎤 Listening... Speak now!</span>';
 
@@ -280,24 +280,56 @@ async function triggerFinalProcessing() {
   console.log('🔄 Fetching high-quality final transcription...');
   liveCaption.innerHTML = '<span style="opacity: 0.7;">⏳ Processing final high-quality transcription...</span>';
 
-  // Wait a moment for the backend to finish processing
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Poll for the final transcription (with timeout)
+  const maxAttempts = 60; // Try for up to 2 minutes (60 * 2 seconds)
+  const pollInterval = 2000; // Check every 2 seconds
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`Polling attempt ${attempt}/${maxAttempts}...`);
+      liveCaption.innerHTML = `<span style="opacity: 0.7;">⏳ Processing... (${attempt * 2}s)</span>`;
+      
+      const response = await fetch(`http://localhost:8003/transcription/${sessionId}`);
 
-  try {
-    const response = await fetch(`http://localhost:8003/transcription/${sessionId}`);
-
-    if (!response.ok) {
-      console.warn('No final transcription available yet');
-      // Still show download section with whatever we have
-      downloadSection.style.display = 'block';
-      liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. See translations below.</span>';
-      return;
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          console.log('✅ Final transcription ready!');
+          await displayFinalTranscription(result);
+          return;
+        }
+      }
+      
+      // Wait before next attempt
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+    } catch (err) {
+      console.warn(`Polling attempt ${attempt} failed:`, err);
+      if (attempt === maxAttempts) {
+        console.error('Failed to fetch final transcription after max attempts');
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
+  }
+  
+  // Timeout or error - show what we have
+  console.warn('Using streaming transcription (final processing timed out or failed)');
+  downloadSection.style.display = 'block';
+  liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. Using streaming results.</span>';
+}
 
-    const result = await response.json();
+async function displayFinalTranscription(result) {
+  try {
+    const data = result.data;
 
-    if (result.success && result.data) {
-      console.log('✅ Received high-quality transcription:', result.data);
+async function displayFinalTranscription(result) {
+  try {
+    const data = result.data;
+
+    if (data) {
+      console.log('✅ Received high-quality transcription:', data);
 
       // Update the UI with the high-quality version
       liveCaption.innerHTML = '<span style="color: #10b981;">✓ High-quality processing complete!</span>';
@@ -309,7 +341,7 @@ async function triggerFinalProcessing() {
       translationCount = 0;
 
       // Process each segment with high-quality transcription
-      for (const segment of result.data.segments) {
+      for (const segment of data.segments) {
         const index = finalizedSegments.length;
         finalizedSegments.push({
           index: index + 1,
@@ -327,8 +359,8 @@ async function triggerFinalProcessing() {
       }
 
       // Log speaker info if available
-      if (result.data.num_speakers) {
-        console.log(`👥 Detected ${result.data.num_speakers} speaker(s) in conversation`);
+      if (data.num_speakers) {
+        console.log(`👥 Detected ${data.num_speakers} speaker(s) in conversation`);
       }
 
       document.getElementById('segmentCount').textContent = segmentCount;

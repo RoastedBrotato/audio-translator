@@ -170,7 +170,7 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 		// Translate transcription
 		tracker.Update("translation", 65, fmt.Sprintf("Translating from %s to %s...", sourceLang, targetLang))
 		log.Printf("Translating from %s to %s...", sourceLang, targetLang)
-		translation, err := translator.TranslateWithSource(transcription, sourceLang, targetLang)
+		translation, err := translateWithChunking(translator, transcription, sourceLang, targetLang)
 		if err != nil {
 			log.Printf("Error translating: %v", err)
 			tracker.Error("translation", "Failed to translate", err)
@@ -414,7 +414,7 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 
 			for i, seg := range segments {
 				segText := seg["text"].(string)
-				translatedText, err := translator.TranslateWithSource(segText, sourceLang, targetLang)
+			translatedText, err := translateWithChunking(translator, segText, sourceLang, targetLang)
 				if err != nil {
 					log.Printf("Error translating segment %d: %v", i, err)
 					translatedText = segText // Fallback to original
@@ -424,12 +424,12 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 			}
 
 			// Also create full translation
-			translation, _ = translator.TranslateWithSource(transcription, sourceLang, targetLang)
+		translation, _ = translateWithChunking(translator, transcription, sourceLang, targetLang)
 		} else {
 			// Single translation
 			tracker.Update("translation", 80, fmt.Sprintf("Translating from %s to %s...", sourceLang, targetLang))
 			log.Printf("Translating from %s to %s...", sourceLang, targetLang)
-			translation, err = translator.TranslateWithSource(transcription, sourceLang, targetLang)
+		translation, err = translateWithChunking(translator, transcription, sourceLang, targetLang)
 			if err != nil {
 				log.Printf("Error translating: %v", err)
 				tracker.Error("translation", "Failed to translate", err)
@@ -702,4 +702,17 @@ func main() {
 
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// translateWithChunking wraps the translator to handle texts larger than 5000 characters
+func translateWithChunking(t translate.Translator, text, sourceLang, targetLang string) (string, error) {
+	const maxChunkSize = 5000
+
+	// Check if the translator is an HTTPTranslator with ChunkAndTranslate method
+	if httpTrans, ok := t.(*translate.HTTPTranslator); ok {
+		return httpTrans.ChunkAndTranslate(text, sourceLang, targetLang)
+	}
+
+	// Fallback to regular translation for other translator types
+	return t.TranslateWithSource(text, sourceLang, targetLang)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 type Translator interface {
@@ -89,4 +90,64 @@ func (h *HTTPTranslator) TranslateWithSource(text, sourceLang, targetLang string
 	}
 
 	return result.Translation, nil
+}
+
+// ChunkAndTranslate splits text into chunks and translates each one
+func (h *HTTPTranslator) ChunkAndTranslate(text, sourceLang, targetLang string) (string, error) {
+	const maxChunkSize = 5000
+
+	if len(text) <= maxChunkSize {
+		return h.TranslateWithSource(text, sourceLang, targetLang)
+	}
+
+	// Split by sentences to avoid breaking words
+	chunks := splitIntoChunks(text, maxChunkSize)
+	var translatedChunks []string
+
+	for _, chunk := range chunks {
+		translated, err := h.TranslateWithSource(chunk, sourceLang, targetLang)
+		if err != nil {
+			return "", fmt.Errorf("error translating chunk: %w", err)
+		}
+		translatedChunks = append(translatedChunks, translated)
+	}
+
+	return strings.Join(translatedChunks, " "), nil
+}
+
+// splitIntoChunks splits text into chunks of approximately maxSize characters
+// while trying to preserve sentence boundaries
+func splitIntoChunks(text string, maxSize int) []string {
+	if len(text) <= maxSize {
+		return []string{text}
+	}
+
+	var chunks []string
+	var currentChunk string
+
+	sentences := strings.Split(text, ". ")
+	for _, sentence := range sentences {
+		// Add period back if not last sentence
+		if !strings.HasSuffix(sentence, ".") {
+			sentence = sentence + "."
+		}
+
+		// If adding this sentence would exceed maxSize, save current chunk and start new one
+		if len(currentChunk)+len(sentence) > maxSize && currentChunk != "" {
+			chunks = append(chunks, strings.TrimSpace(currentChunk))
+			currentChunk = sentence
+		} else {
+			if currentChunk != "" {
+				currentChunk += " "
+			}
+			currentChunk += strings.TrimSuffix(sentence, ".")
+		}
+	}
+
+	// Add remaining chunk
+	if currentChunk != "" {
+		chunks = append(chunks, currentChunk)
+	}
+
+	return chunks
 }
