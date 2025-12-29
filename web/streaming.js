@@ -324,10 +324,6 @@ async function displayFinalTranscription(result) {
   try {
     const data = result.data;
 
-async function displayFinalTranscription(result) {
-  try {
-    const data = result.data;
-
     if (data) {
       console.log('✅ Received high-quality transcription:', data);
 
