@@ -1,261 +1,196 @@
-# Voice Cloning Setup Guide
+# Voice Cloning with XTTS v2
 
-This guide explains how to enable true voice cloning capabilities in the TTS service.
+The TTS service now includes **working voice cloning** capabilities using Coqui XTTS v2, running in a Docker container with Python 3.11.
 
 ## Current Status
 
-The TTS service currently uses **gTTS** (Google Text-to-Speech), which provides standard, non-personalized voices. The "Clone original voice" checkbox is present in the UI, but the backend does not perform actual voice cloning due to dependencies.
+✅ **Voice cloning is ACTIVE** for the video upload feature
+✅ Uses Coqui XTTS v2 (multilingual, open-source)
+✅ Automatic text chunking for long translations
+✅ Graceful fallback to gTTS for unsupported scenarios
 
-## Why Voice Cloning Isn't Currently Available
+## How It Works
 
-1. **Python Version Incompatibility**: The best open-source voice cloning library (Coqui XTTS v2) requires Python 3.11 or older
-2. **System Has Python 3.12**: Ubuntu 24.04 comes with Python 3.12, which is incompatible
-3. **Dependency Conflicts**: Alternative solutions like ElevenLabs SDK have pydantic version conflicts with FastAPI
+### Architecture
 
-## Options for Adding Voice Cloning
+The TTS service (`services/tts_py/`) runs in Docker with:
+- Python 3.11 (required for XTTS v2)
+- Coqui TTS library with XTTS v2 model (1.87 GB)
+- Automatic model download on first container build
+- Background loading on startup (service available immediately with gTTS)
 
-### Option 1: Install Python 3.11 (Recommended for XTTS v2)
+### Endpoints
 
-Since Python 3.11 is not available in Ubuntu 24.04 repositories, you can use pyenv:
+**`POST /synthesize_with_voice`** - Voice cloning with reference audio
+- Parameters:
+  - `text` (string): Text to synthesize
+  - `language` (string): Target language code (e.g., "en", "hi", "es")
+  - `reference_audio` (file): WAV file of original speaker's voice
+- Returns: WAV audio with cloned voice
+- Falls back to standard TTS if XTTS fails
 
-```bash
-# Install pyenv
-curl https://pyenv.run | bash
+**`POST /synthesize`** - Standard TTS without voice cloning
+- Parameters:
+  - `text` (string): Text to synthesize
+  - `language` (string): Target language code
+- Returns: WAV audio with standard voice (gTTS or XTTS)
 
-# Add to ~/.bashrc
-export PATH="$HOME/.pyenv/bin:$PATH"
-eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
+**`GET /health`** - Service health check
+- Returns model loading status and available features
 
-# Install Python 3.11
-pyenv install 3.11.9
+## Supported Languages
 
-# Create venv with Python 3.11
-cd services/tts_py
-pyenv local 3.11.9
-python -m venv venv
-source venv/bin/activate
+XTTS v2 supports voice cloning in these languages:
+- English (en)
+- Spanish (es)
+- French (fr)
+- German (de)
+- Italian (it)
+- Portuguese (pt)
+- Polish (pl)
+- Turkish (tr)
+- Russian (ru)
+- Dutch (nl)
+- Czech (cs)
+- Arabic (ar)
+- Chinese (zh)
+- Hungarian (hu)
+- Korean (ko)
+- Japanese (ja)
+- Hindi (hi)
 
-# Install XTTS dependencies
-pip install fastapi uvicorn python-multipart
-pip install TTS torch torchaudio numpy
+## Known Limitations
 
-# Update app.py to use XTTS (see Option 1 code below)
-```
+### Token Limit
+XTTS v2 has a **400 token limit** per synthesis request. The service handles this with:
 
-**app.py for XTTS v2:**
+1. **Text Chunking**: Long texts are automatically split into ~250 character chunks
+2. **Chunk Processing**: Each chunk is synthesized separately with voice cloning
+3. **Audio Stitching**: Chunks are combined into a single output file
 
-```python
-#!/usr/bin/env python3
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import Response
-from TTS.api import TTS
-import tempfile
-import logging
-import os
+**Current Issue**: For some languages like Hindi, even 250-character chunks can exceed the 400 token limit because:
+- Tokens ≠ Characters
+- Non-Latin scripts may use more tokens per character
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+**Behavior**: When token limit is exceeded, the system automatically falls back to gTTS (standard TTS without voice cloning)
 
-app = FastAPI(title="TTS Service with XTTS v2")
+### Fallback Scenarios
 
-# Initialize XTTS model
-tts_model = None
+The service falls back to gTTS in these cases:
+1. XTTS v2 model is still loading (during initial startup)
+2. Text exceeds 400 token limit (even after chunking)
+3. XTTS v2 encounters an error
+4. Language is not supported by XTTS v2
 
-@app.on_event("startup")
-async def load_model():
-    global tts_model
-    logger.info("Loading XTTS v2 model...")
-    tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
-    logger.info("XTTS v2 model loaded!")
+## Usage
 
-@app.post("/synthesize_with_voice")
-async def synthesize_with_voice(
-    text: str = Form(...),
-    language: str = Form("en"),
-    reference_audio: UploadFile = File(...)
-):
-    """Voice cloning with XTTS v2"""
-    try:
-        # Save reference audio to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as ref_file:
-            ref_file.write(await reference_audio.read())
-            ref_audio_path = ref_file.name
-        
-        # Generate speech with voice cloning
-        output_path = tempfile.mktemp(suffix=".wav")
-        
-        tts_model.tts_to_file(
-            text=text,
-            file_path=output_path,
-            speaker_wav=ref_audio_path,
-            language=language
-        )
-        
-        # Read output
-        with open(output_path, "rb") as f:
-            audio_data = f.read()
-        
-        # Cleanup
-        os.unlink(ref_audio_path)
-        os.unlink(output_path)
-        
-        return Response(
-            content=audio_data,
-            media_type="audio/wav",
-            headers={"Content-Disposition": "inline"}
-        )
-    except Exception as e:
-        logger.error(f"Voice cloning error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-```
+### Via Video Upload Page
 
-### Option 2: Use ElevenLabs API (Commercial Service)
+1. Go to `http://localhost:8080/video.html`
+2. Upload a video file
+3. Select source and target languages
+4. ✅ Check "Generate translated audio"
+5. ✅ Check "Clone voice from original audio"
+6. Click "Upload and Process"
 
-ElevenLabs provides high-quality voice cloning as a paid service.
+The system will:
+- Extract audio from the video
+- Transcribe the speech
+- Translate to target language
+- Generate dubbed audio with the original speaker's voice
+- Replace audio in the video
+
+### Via API
 
 ```bash
-# Get API key from https://elevenlabs.io/
-export ELEVENLABS_API_KEY="your-api-key-here"
+# Voice cloning
+curl -X POST http://localhost:8005/synthesize_with_voice \
+  -F "text=नमस्ते, यह एक परीक्षण है" \
+  -F "language=hi" \
+  -F "reference_audio=@original_speaker.wav" \
+  -o cloned_voice.wav
 
-# Install (use compatible versions)
-pip install elevenlabs==1.5.0 fastapi python-multipart
+# Standard TTS
+curl -X POST http://localhost:8005/synthesize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, this is a test", "language": "en"}' \
+  -o standard_voice.wav
 ```
 
-**app.py for ElevenLabs:**
+## Performance
 
-```python
-#!/usr/bin/env python3
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import Response
-from elevenlabs.client import ElevenLabs
-from elevenlabs import VoiceSettings
-import os
-import logging
+- **Model Loading**: 2-5 minutes on first container start (downloads 1.87 GB)
+- **Synthesis Speed**: ~5-10 seconds per sentence on CPU, ~1-2 seconds on GPU
+- **Fallback (gTTS)**: < 1 second per sentence (cloud-based)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+## Setup
 
-app = FastAPI(title="TTS Service with ElevenLabs")
-
-@app.post("/synthesize_with_voice")
-async def synthesize_with_voice(
-    text: str = Form(...),
-    language: str = Form("en"),
-    reference_audio: UploadFile = File(...)
-):
-    """Voice cloning with ElevenLabs"""
-    try:
-        api_key = os.getenv("ELEVENLABS_API_KEY")
-        if not api_key:
-            raise HTTPException(status_code=500, detail="ELEVENLABS_API_KEY not set")
-        
-        client = ElevenLabs(api_key=api_key)
-        
-        # Read reference audio
-        reference_bytes = await reference_audio.read()
-        
-        # Use voice isolation for best quality
-        audio_generator = client.text_to_speech.convert_with_voice_isolation(
-            text=text,
-            audio=reference_bytes,
-            voice_settings=VoiceSettings(
-                stability=0.5,
-                similarity_boost=0.75,
-                use_speaker_boost=True
-            )
-        )
-        
-        # Collect audio chunks
-        audio_bytes = b''.join(chunk for chunk in audio_generator if chunk)
-        
-        return Response(
-            content=audio_bytes,
-            media_type="audio/mpeg",
-            headers={"Content-Disposition": "inline"}
-        )
-    except Exception as e:
-        logger.error(f"ElevenLabs error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-```
-
-### Option 3: Use Docker with Python 3.11
-
-Create a Dockerfile for the TTS service:
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install ffmpeg for audio processing
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install XTTS
-RUN pip install --no-cache-dir TTS torch torchaudio
-
-# Copy app
-COPY app.py .
-
-# Expose port
-EXPOSE 8005
-
-# Run
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8005"]
-```
-
-Run with:
-```bash
-docker build -t tts-service services/tts_py/
-docker run -p 8005:8005 tts-service
-```
-
-### Option 4: Use StyleTTS2 (Experimental)
-
-StyleTTS2 is a newer open-source alternative, but requires more setup:
+Voice cloning is automatically configured when you build the Docker container:
 
 ```bash
-# Clone StyleTTS2
-git clone https://github.com/yl4579/StyleTTS2.git
-cd StyleTTS2
-
-# Follow their setup instructions
-# Wrap in FastAPI service similar to XTTS
+# Start all services with voice cloning
+./start-streaming.sh
 ```
 
-## Testing Voice Cloning
+The TTS container will:
+1. Download XTTS v2 model (~1.87 GB) on first build
+2. Load the model in background on startup
+3. Make the service available immediately with gTTS
+4. Switch to XTTS v2 when loading completes
 
-Once you've implemented one of the options above:
+## Troubleshooting
 
-1. Start the TTS service
-2. Go to http://localhost:8080/video.html
-3. Upload a video
-4. Check both "Generate translated audio" AND "Clone original voice"
-5. Process the video
-6. The resulting audio should match the original speaker's voice
+### "XTTS v2 model is still loading"
 
-## Performance Considerations
+The model is downloading or loading. This happens on:
+- First container start (downloads ~1.87 GB)
+- Container rebuild (re-downloads model)
 
-- **XTTS v2**: ~5-10 seconds per sentence on CPU, ~1-2 seconds on GPU
-- **ElevenLabs**: Fast (cloud-based), but costs money per character
-- **gTTS** (current): Fast, free, but no voice cloning
+**Solution**: Wait 2-5 minutes for the model to load. Check status:
+```bash
+docker logs audio-translator-tts 2>&1 | grep "XTTS"
+```
 
-## Cost Considerations
+Look for: `✓ XTTS v2 model loaded successfully!`
 
-- **XTTS v2**: Free, open-source, runs locally
-- **ElevenLabs**: Paid service (~$0.0003 per character)
-- **gTTS**: Free
+### Voice cloning falls back to standard TTS
 
-## Recommendation
+This can happen for several reasons:
 
-For the best balance of quality and cost:
-1. Use **pyenv** to install Python 3.11
-2. Install **XTTS v2** with the code from Option 1
-3. This gives you free, high-quality voice cloning running locally
+1. **Long text**: Exceeds 400 token limit even after chunking
+   - **Solution**: Use shorter segments, or accept gTTS fallback
 
-For production or if you need the absolute best quality:
-- Use **ElevenLabs API** (Option 2) with appropriate API key management
+2. **Unsupported language**: Language not in XTTS v2's supported list
+   - **Solution**: Check supported languages above
+
+3. **Model not loaded**: XTTS v2 still loading
+   - **Solution**: Wait for model to finish loading
+
+### Container keeps re-downloading the model
+
+The model downloads every time the container is rebuilt. To persist:
+
+```bash
+# Create a volume for model cache
+docker volume create tts-models
+
+# Add to docker run command in start-streaming.sh
+-v tts-models:/root/.local/share/tts
+```
+
+## Cost Comparison
+
+| Solution | Cost | Quality | Speed | Voice Cloning |
+|----------|------|---------|-------|---------------|
+| XTTS v2 (current) | Free | High | Medium | Yes |
+| gTTS (fallback) | Free | Medium | Fast | No |
+| ElevenLabs | ~$0.30/1000 chars | Excellent | Very Fast | Yes |
+
+## Future Improvements
+
+Potential enhancements:
+1. **Token-based chunking**: Use XTTS tokenizer instead of character count
+2. **GPU acceleration**: Add GPU support for faster synthesis
+3. **Model persistence**: Cache model in Docker volume
+4. **Alternative models**: Support for other voice cloning models
+5. **Quality tuning**: Expose XTTS parameters for voice quality adjustment

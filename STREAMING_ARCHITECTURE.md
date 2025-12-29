@@ -118,7 +118,7 @@ http://localhost:8080/streaming.html
 
 ### 2. Improvements
 - [ ] Punctuation and capitalization
-- [ ] Speaker diarization
+- [x] Speaker diarization (IMPLEMENTED - see `recording.html`)
 - [ ] Keyword highlighting
 - [ ] Configurable VAD threshold
 - [ ] Configurable silence duration
