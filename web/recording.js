@@ -1,399 +1,413 @@
-// Recording Translation Frontend
-
-let sessionId = null;
-let ws = null;
-let mediaRecorder = null;
-let audioContext = null;
-let mediaStream = null;
-let isRecording = false;
-let transcriptItems = [];
-let processedCount = 0;
-let totalChunks = 0;
-
-const btnStart = document.getElementById('btnStart');
-const btnStop = document.getElementById('btnStop');
+// Audio upload and translation script
+const uploadArea = document.getElementById('uploadArea');
+const audioFile = document.getElementById('audioFile');
+const fileInfo = document.getElementById('fileInfo');
+const fileName = document.getElementById('fileName');
+const fileSize = document.getElementById('fileSize');
+const uploadBtn = document.getElementById('uploadBtn');
+const clearBtn = document.getElementById('clearBtn');
+const progressContainer = document.getElementById('progressContainer');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const progressStage = document.getElementById('progressStage');
+const results = document.getElementById('results');
+const transcription = document.getElementById('transcription');
+const translation = document.getElementById('translation');
 const sourceLang = document.getElementById('sourceLang');
 const targetLang = document.getElementById('targetLang');
-const status = document.getElementById('status');
-const chunkCounter = document.getElementById('chunkCounter');
-const progressContainer = document.getElementById('progressContainer');
-const progressBar = document.getElementById('progressBar');
-const transcriptContainer = document.getElementById('transcriptContainer');
-const downloadSection = document.getElementById('downloadSection');
-const recordingIndicator = document.getElementById('recordingIndicator');
-const btnDownloadTxt = document.getElementById('btnDownloadTxt');
-const btnDownloadJson = document.getElementById('btnDownloadJson');
+const errorMessage = document.getElementById('errorMessage');
+const downloadTxtBtn = document.getElementById('downloadTxtBtn');
+const downloadJsonBtn = document.getElementById('downloadJsonBtn');
+const enableDiarization = document.getElementById('enableDiarization');
 
-btnStart.addEventListener('click', startRecording);
-btnStop.addEventListener('click', stopRecording);
-btnDownloadTxt.addEventListener('click', () => downloadTranscript('txt'));
-btnDownloadJson.addEventListener('click', () => downloadTranscript('json'));
+let selectedFile = null;
+let progressWS = null;
+let resultData = null;
 
-async function startRecording() {
-  try {
-    // Generate session ID
-    sessionId = 'rec_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    
-    // Clear previous transcript
-    transcriptItems = [];
-    processedCount = 0;
-    totalChunks = 0;
-    transcriptContainer.innerHTML = '<p style="text-align: center; color: #999;">Listening...</p>';
-    downloadSection.style.display = 'none';
-    progressContainer.style.display = 'none';
-    
-    // Start recording session on backend
-    const response = await fetch('/recording/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: sessionId,
-        sourceLang: sourceLang.value,
-        targetLang: targetLang.value
-      })
+// Speaker color mapping (same as streaming)
+const speakerColors = {
+  'SPEAKER_00': { bg: '#e3f2fd', border: '#2196f3', align: 'left', name: 'Person 1' },
+  'SPEAKER_01': { bg: '#f3e5f5', border: '#9c27b0', align: 'right', name: 'Person 2' },
+  'SPEAKER_02': { bg: '#e8f5e9', border: '#4caf50', align: 'left', name: 'Person 3' },
+  'SPEAKER_03': { bg: '#fff3e0', border: '#ff9800', align: 'right', name: 'Person 4' }
+};
+
+// Get speaker style
+function getSpeakerStyle(speaker) {
+  const speakerKeys = Object.keys(speakerColors);
+  const speakerKey = speakerKeys[parseInt(speaker.split('_')[1] || '0') % speakerKeys.length];
+  return speakerColors[speakerKey];
+}
+
+// Display segments with speaker bubbles
+function displaySegmentsWithSpeakers(segments) {
+    // Clear the result sections and convert to bubble display
+    const resultsDiv = document.getElementById('results');
+
+    // Remove the standard result sections
+    const resultSections = resultsDiv.querySelectorAll('.result-section');
+    resultSections.forEach(section => section.style.display = 'none');
+
+    // Create a container for bubbles
+    let bubblesContainer = resultsDiv.querySelector('.bubbles-container');
+    if (!bubblesContainer) {
+        bubblesContainer = document.createElement('div');
+        bubblesContainer.className = 'bubbles-container';
+        bubblesContainer.style.display = 'flex';
+        bubblesContainer.style.flexDirection = 'column';
+        bubblesContainer.style.gap = '10px';
+        resultsDiv.insertBefore(bubblesContainer, resultsDiv.firstChild);
+    } else {
+        bubblesContainer.innerHTML = '';
+    }
+
+    // Display each segment as a bubble
+    segments.forEach(segment => {
+        const speaker = segment.speaker || 'SPEAKER_00';
+        const style = getSpeakerStyle(speaker);
+
+        const bubble = document.createElement('div');
+        bubble.className = `translation-bubble translation-${style.align}`;
+        bubble.innerHTML = `
+            <div class="speaker-label" style="color: ${style.border};">${style.name}</div>
+            <div class="bubble-content" style="background: ${style.bg}; border-left: 4px solid ${style.border};">
+                <div class="bubble-original">${escapeHtml(segment.text)}</div>
+                <div class="bubble-translated">→ ${escapeHtml(segment.translation || 'Translation pending...')}</div>
+            </div>
+        `;
+
+        bubblesContainer.appendChild(bubble);
     });
-    
-    if (!response.ok) {
-      throw new Error('Failed to start recording session');
-    }
-    
-    // Connect to WebSocket for live updates
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${window.location.host}/ws/recording/${sessionId}`);
-    
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-    };
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleWSMessage(data);
-    };
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-    };
-    
-    // Get microphone access with minimal processing
-    mediaStream = await navigator.mediaDevices.getUserMedia({ 
-      audio: {
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      } 
-    });
-    
-    // Create audio context for processing (use default sample rate to avoid mismatch)
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(mediaStream);
-    
-    // Resample to 16kHz using OfflineAudioContext if needed
-    const targetSampleRate = 16000;
-    const actualSampleRate = audioContext.sampleRate;
-    console.log(`Audio context sample rate: ${actualSampleRate}, target: ${targetSampleRate}`);
-    
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-    
-    processor.onaudioprocess = (e) => {
-      if (isRecording && ws && ws.readyState === WebSocket.OPEN) {
-        const inputData = e.inputBuffer.getChannelData(0);
-        
-        // Resample to 16kHz if needed
-        const resampledData = resample(inputData, actualSampleRate, targetSampleRate);
-        
-        // Convert to PCM16 and send
-        const pcm16 = floatTo16BitPCM(resampledData);
-        ws.send(pcm16);
-      }
-    };
-    
-    source.connect(processor);
-    processor.connect(audioContext.destination);
-    
-    // Update UI
-    isRecording = true;
-    btnStart.disabled = true;
-    btnStop.disabled = false;
-    sourceLang.disabled = true;
-    targetLang.disabled = true;
-    status.textContent = 'Recording...';
-    recordingIndicator.innerHTML = '<span class="recording-indicator"></span>';
-    
-    console.log('Recording started, session:', sessionId);
-    
-  } catch (err) {
-    console.error('Error starting recording:', err);
-    alert('Failed to start recording: ' + err.message);
-    status.textContent = 'Error';
-  }
-}
-
-async function stopRecording() {
-  try {
-    isRecording = false;
-    
-    // Stop media stream tracks (this removes the microphone indicator)
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-      mediaStream = null;
-    }
-    
-    // Stop audio context
-    if (audioContext) {
-      audioContext.close();
-      audioContext = null;
-    }
-    
-    // DON'T close WebSocket yet - we need it to receive translations!
-    // It will be closed when we connect to the progress WebSocket
-    
-    // Notify backend to stop recording
-    const response = await fetch('/recording/stop', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sessionId })
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to stop recording');
-    }
-    
-    const data = await response.json();
-    totalChunks = data.totalChunks || processedCount;
-    
-    // Now stop audio locally
-    isRecording = false;
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-    }
-    if (audioContext) {
-      await audioContext.close();
-    }
-    
-    // Update UI
-    btnStart.disabled = false;
-    btnStop.disabled = true;
-    sourceLang.disabled = false;
-    targetLang.disabled = false;
-    status.textContent = 'Processing...';
-    recordingIndicator.innerHTML = '';
-    
-    // Show progress bar
-    progressContainer.style.display = 'block';
-    updateProgress();
-    
-    // Recording WebSocket stays open for translations
-    // It will be closed by backend when complete
-    
-    // Connect to progress WebSocket  
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const progressWs = new WebSocket(`${protocol}//${window.location.host}/ws/progress/${sessionId}`);
-    
-    progressWs.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log('Progress message received:', data);
-      
-      // Handle translation via progress WebSocket
-      if (data.stage === 'translation' && data.results) {
-        // Translation data is in results field
-        handleWSMessage(data.results);
-      } 
-      // Handle progress updates
-      else if (data.stage === 'processing' && data.progress !== undefined) {
-        // Update progress bar directly with percentage
-        progressBar.style.width = Math.round(data.progress) + '%';
-        progressBar.textContent = Math.round(data.progress) + '%';
-        status.textContent = data.message || 'Processing...';
-      } 
-      // Handle completion
-      else if (data.stage === 'complete' || data.type === 'complete') {
-        onProcessingComplete();
-        progressWs.close();
-        // Close recording WebSocket now
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.close();
-        }
-      } 
-      // Fallback for direct translation messages
-      else if (data.type === 'translation') {
-        handleWSMessage(data);
-      }
-    };
-    
-    console.log('Recording stopped, processing in background');
-    
-  } catch (err) {
-    console.error('Error stopping recording:', err);
-    alert('Failed to stop recording: ' + err.message);
-  }
-}
-
-function handleWSMessage(data) {
-  if (data.type === 'translation') {
-    processedCount++;
-    
-    const item = {
-      index: data.index || processedCount,
-      original: data.original || '',
-      translation: data.translation || '',
-      timestamp: data.timestamp || new Date().toISOString()
-    };
-    
-    transcriptItems.push(item);
-    addTranscriptItem(item);
-    updateChunkCounter();
-    
-    if (!isRecording) {
-      updateProgress();
-    }
-  } else if (data.type === 'progress') {
-    updateProgress(data.current, data.total);
-  } else if (data.type === 'complete') {
-    console.log('Received completion signal from backend');
-    onProcessingComplete();
-    // Close recording WebSocket now that processing is done
-    if (ws) {
-      ws.close();
-      ws = null;
-      console.log('Recording WebSocket closed after completion');
-    }
-  } else if (data.type === 'error') {
-    console.error('Error from server:', data.message);
-    status.textContent = 'Error: ' + data.message;
-  }
-}
-
-function addTranscriptItem(item) {
-  // Remove placeholder if it exists
-  if (transcriptContainer.children.length === 1 && 
-      transcriptContainer.children[0].tagName === 'P') {
-    transcriptContainer.innerHTML = '';
-  }
-  
-  const div = document.createElement('div');
-  div.className = 'transcript-item';
-  div.innerHTML = `
-    <div class="transcript-label">Original #${item.index}</div>
-    <div class="transcript-text">${escapeHtml(item.original)}</div>
-    <div class="transcript-label" style="margin-top: 10px;">Translation</div>
-    <div class="transcript-text">${escapeHtml(item.translation)}</div>
-  `;
-  
-  transcriptContainer.appendChild(div);
-  transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
-}
-
-function updateChunkCounter() {
-  if (isRecording) {
-    chunkCounter.textContent = `${processedCount} segments processed`;
-  } else if (totalChunks > 0) {
-    chunkCounter.textContent = `${processedCount}/${totalChunks} segments`;
-  }
-}
-
-function updateProgress(current, total) {
-  if (!current) current = processedCount;
-  if (!total) total = totalChunks;
-  
-  if (total > 0) {
-    const percent = Math.round((current / total) * 100);
-    progressBar.style.width = percent + '%';
-    progressBar.textContent = percent + '%';
-  }
-}
-
-function onProcessingComplete() {
-  status.textContent = 'Complete ✓';
-  progressBar.style.width = '100%';
-  progressBar.textContent = '100%';
-  downloadSection.style.display = 'block';
-  chunkCounter.textContent = `${transcriptItems.length} segments completed`;
-}
-
-function downloadTranscript(format) {
-  if (format === 'txt') {
-    let text = `Recording Translation\n`;
-    text += `Session: ${sessionId}\n`;
-    text += `Date: ${new Date().toLocaleString()}\n`;
-    text += `Source Language: ${sourceLang.value}\n`;
-    text += `Target Language: ${targetLang.value}\n`;
-    text += `Total Segments: ${transcriptItems.length}\n`;
-    text += `\n${'='.repeat(80)}\n\n`;
-    
-    transcriptItems.forEach((item, idx) => {
-      text += `[Segment ${item.index}]\n`;
-      text += `Original: ${item.original}\n`;
-      text += `Translation: ${item.translation}\n`;
-      text += `\n`;
-    });
-    
-    downloadFile(text, `transcript_${sessionId}.txt`, 'text/plain');
-    
-  } else if (format === 'json') {
-    const data = {
-      sessionId: sessionId,
-      date: new Date().toISOString(),
-      sourceLang: sourceLang.value,
-      targetLang: targetLang.value,
-      totalSegments: transcriptItems.length,
-      segments: transcriptItems
-    };
-    
-    downloadFile(JSON.stringify(data, null, 2), `transcript_${sessionId}.json`, 'application/json');
-  }
-}
-
-function downloadFile(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function floatTo16BitPCM(float32Array) {
-  const int16Array = new Int16Array(float32Array.length);
-  for (let i = 0; i < float32Array.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32Array[i]));
-    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return int16Array.buffer;
-}
-
-// Simple linear resampling from source sample rate to 16kHz
-function resample(audioData, sourceSampleRate, targetSampleRate = 16000) {
-  if (sourceSampleRate === targetSampleRate) {
-    return audioData;
-  }
-  
-  const ratio = sourceSampleRate / targetSampleRate;
-  const newLength = Math.round(audioData.length / ratio);
-  const result = new Float32Array(newLength);
-  
-  for (let i = 0; i < newLength; i++) {
-    const sourceIndex = i * ratio;
-    const leftIndex = Math.floor(sourceIndex);
-    const rightIndex = Math.min(leftIndex + 1, audioData.length - 1);
-    const fraction = sourceIndex - leftIndex;
-    
-    // Linear interpolation
-    result[i] = audioData[leftIndex] * (1 - fraction) + audioData[rightIndex] * fraction;
-  }
-  
-  return result;
 }
 
 function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Stage emoji mappings
+const stageEmojis = {
+    'upload': '📤',
+    'saving': '💾',
+    'detection': '🔍',
+    'transcription': '📝',
+    'translation': '🌍',
+    'processing': '⚙️',
+    'complete': '✅'
+};
+
+// Click to upload
+uploadArea.addEventListener('click', () => {
+    audioFile.click();
+});
+
+// File selection
+audioFile.addEventListener('change', (e) => {
+    handleFile(e.target.files[0]);
+});
+
+// Drag and drop
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragging');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragging');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragging');
+    handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file) {
+    if (!file) return;
+
+    // Check if it's an audio file
+    if (!file.type.startsWith('audio/')) {
+        showError('Please select a valid audio file');
+        return;
+    }
+
+    // Check file size (100MB max)
+    if (file.size > 100 * 1024 * 1024) {
+        showError('File size must be less than 100MB');
+        return;
+    }
+
+    selectedFile = file;
+
+    // Display file info
+    fileName.textContent = file.name;
+    fileSize.textContent = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+    fileInfo.classList.add('show');
+
+    // Enable upload button
+    uploadBtn.disabled = false;
+
+    // Hide previous results
+    results.classList.remove('show');
+    errorMessage.classList.remove('show');
+}
+
+function showError(message) {
+    errorMessage.textContent = message;
+    errorMessage.classList.add('show');
+    setTimeout(() => {
+        errorMessage.classList.remove('show');
+    }, 5000);
+}
+
+// Upload button click
+uploadBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    // Disable buttons during processing
+    uploadBtn.disabled = true;
+    clearBtn.disabled = true;
+
+    // Show progress
+    progressContainer.classList.add('show');
+    progressFill.style.width = '0%';
+    progressText.textContent = 'Initializing...';
+    progressStage.textContent = '';
+
+    // Hide previous results and errors
+    results.classList.remove('show');
+    errorMessage.classList.remove('show');
+
+    try {
+        // Create form data
+        const formData = new FormData();
+        formData.append('audio', selectedFile);
+        formData.append('sourceLang', sourceLang.value);
+        formData.append('targetLang', targetLang.value);
+        formData.append('enableDiarization', enableDiarization.checked ? 'true' : 'false');
+
+        // Upload audio and get session ID
+        const response = await fetch('/upload-audio', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (!data.success || !data.sessionId) {
+            throw new Error(data.error || 'Failed to start processing');
+        }
+
+        // Connect to progress WebSocket
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/progress/${data.sessionId}`;
+        progressWS = new WebSocket(wsUrl);
+
+        progressWS.onopen = () => {
+            console.log('Progress WebSocket connected');
+        };
+
+        progressWS.onmessage = (event) => {
+            const update = JSON.parse(event.data);
+            console.log('Progress update:', update);
+
+            // Update progress bar
+            progressFill.style.width = `${update.progress}%`;
+
+            // Update stage indicator
+            const emoji = stageEmojis[update.stage] || '⏳';
+            progressStage.textContent = `${emoji} ${update.stage.toUpperCase()}`;
+
+            // Update progress text
+            progressText.textContent = update.message;
+
+            // Check for errors
+            if (update.error) {
+                throw new Error(update.message || 'Processing failed');
+            }
+
+            // Check for completion
+            if (update.stage === 'complete') {
+                progressWS.close();
+                progressWS = null;
+
+                // Store results
+                if (update.results) {
+                    resultData = {
+                        transcription: update.results.transcription || 'No transcription available',
+                        translation: update.results.translation || 'No translation available',
+                        detectedLang: update.results.detectedLang,
+                        sourceLang: sourceLang.value,
+                        targetLang: targetLang.value,
+                        fileName: selectedFile.name,
+                        segments: update.results.segments || null,
+                        numSpeakers: update.results.num_speakers || 0
+                    };
+
+                    // Display results
+                    if (resultData.segments && resultData.segments.length > 0 && resultData.numSpeakers > 1) {
+                        // Display with speaker bubbles
+                        displaySegmentsWithSpeakers(resultData.segments);
+                    } else {
+                        // Simple text display
+                        transcription.textContent = resultData.transcription;
+                        translation.textContent = resultData.translation;
+                    }
+
+                    // Log detected language and speakers
+                    if (update.results.detectedLang) {
+                        console.log('Detected language:', update.results.detectedLang);
+                    }
+                    if (update.results.num_speakers) {
+                        console.log(`👥 Detected ${update.results.num_speakers} speaker(s)`);
+                    }
+                }
+
+                // Wait a bit then show results
+                setTimeout(() => {
+                    progressContainer.classList.remove('show');
+                    if (resultData) {
+                        results.classList.add('show');
+                    }
+
+                    // Re-enable buttons
+                    uploadBtn.disabled = false;
+                    clearBtn.disabled = false;
+                }, 500);
+            }
+        };
+
+        progressWS.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            if (progressWS) {
+                progressWS.close();
+                progressWS = null;
+            }
+        };
+
+        progressWS.onclose = () => {
+            console.log('Progress WebSocket closed');
+        };
+
+    } catch (error) {
+        console.error('Error:', error);
+        progressContainer.classList.remove('show');
+        showError(error.message);
+        uploadBtn.disabled = false;
+        clearBtn.disabled = false;
+
+        if (progressWS) {
+            progressWS.close();
+            progressWS = null;
+        }
+    }
+});
+
+// Clear button
+clearBtn.addEventListener('click', () => {
+    // Close progress WebSocket if open
+    if (progressWS) {
+        progressWS.close();
+        progressWS = null;
+    }
+
+    selectedFile = null;
+    resultData = null;
+    audioFile.value = '';
+    fileInfo.classList.remove('show');
+    uploadBtn.disabled = true;
+    progressContainer.classList.remove('show');
+    results.classList.remove('show');
+    errorMessage.classList.remove('show');
+    progressFill.style.width = '0%';
+    progressStage.textContent = '';
+});
+
+// Download as text
+downloadTxtBtn.addEventListener('click', () => {
+    if (!resultData) return;
+
+    let text = `Audio Translation\n`;
+    text += `File: ${resultData.fileName}\n`;
+    text += `Date: ${new Date().toLocaleString()}\n`;
+    text += `Source Language: ${resultData.sourceLang}`;
+    if (resultData.detectedLang && resultData.sourceLang === 'auto') {
+        text += ` (detected: ${resultData.detectedLang})`;
+    }
+    text += `\n`;
+    text += `Target Language: ${resultData.targetLang}\n`;
+    if (resultData.numSpeakers > 1) {
+        text += `Speakers Detected: ${resultData.numSpeakers}\n`;
+    }
+    text += `\n${'='.repeat(80)}\n\n`;
+
+    // If diarization was used, format as conversation
+    if (resultData.segments && resultData.segments.length > 0 && resultData.numSpeakers > 1) {
+        text += `Original Conversation:\n\n`;
+        resultData.segments.forEach((segment, idx) => {
+            const speaker = segment.speaker || 'SPEAKER_00';
+            const style = getSpeakerStyle(speaker);
+            text += `${style.name}: ${segment.text}\n`;
+        });
+        text += `\n${'='.repeat(80)}\n\n`;
+
+        text += `Translated Conversation:\n\n`;
+        resultData.segments.forEach((segment, idx) => {
+            const speaker = segment.speaker || 'SPEAKER_00';
+            const style = getSpeakerStyle(speaker);
+            const translation = segment.translation || segment.text;
+            text += `${style.name}: ${translation}\n`;
+        });
+    } else {
+        // Standard format for single speaker or non-diarized
+        text += `Original Transcription:\n`;
+        text += `${resultData.transcription}\n\n`;
+        text += `${'='.repeat(80)}\n\n`;
+
+        text += `Translation:\n`;
+        text += `${resultData.translation}\n`;
+    }
+
+    downloadFile(text, `transcript_${Date.now()}.txt`, 'text/plain');
+});
+
+// Download as JSON
+downloadJsonBtn.addEventListener('click', () => {
+    if (!resultData) return;
+
+    const jsonData = {
+        fileName: resultData.fileName,
+        date: new Date().toISOString(),
+        sourceLang: resultData.sourceLang,
+        detectedLang: resultData.detectedLang,
+        targetLang: resultData.targetLang,
+        transcription: resultData.transcription,
+        translation: resultData.translation
+    };
+
+    // Include speaker segments if available
+    if (resultData.segments && resultData.segments.length > 0) {
+        jsonData.numSpeakers = resultData.numSpeakers;
+        jsonData.segments = resultData.segments.map(segment => ({
+            speaker: segment.speaker,
+            speakerName: getSpeakerStyle(segment.speaker).name,
+            text: segment.text,
+            translation: segment.translation || segment.text
+        }));
+    }
+
+    downloadFile(JSON.stringify(jsonData, null, 2), `transcript_${Date.now()}.json`, 'application/json');
+});
+
+function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }

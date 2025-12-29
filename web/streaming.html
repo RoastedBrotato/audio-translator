@@ -41,6 +41,8 @@
       margin-top: 30px;
       max-height: 400px;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
     }
     
     .translation-item {
@@ -65,7 +67,68 @@
       padding-left: 20px;
       border-left: 3px solid #e0e0e0;
     }
-    
+
+    /* Chat bubble styles for multi-speaker conversations */
+    .translation-bubble {
+      margin: 20px 0;
+      display: flex;
+      flex-direction: column;
+      max-width: 75%;
+    }
+
+    .translation-bubble.translation-left {
+      align-self: flex-start;
+    }
+
+    .translation-bubble.translation-right {
+      align-self: flex-end;
+    }
+
+    .speaker-label {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .translation-left .speaker-label {
+      text-align: left;
+      margin-left: 10px;
+    }
+
+    .translation-right .speaker-label {
+      text-align: right;
+      margin-right: 10px;
+    }
+
+    .bubble-content {
+      padding: 15px 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .translation-right .bubble-content {
+      border-left: none !important;
+      border-right: 4px solid;
+    }
+
+    .bubble-original {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 8px;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .bubble-translated {
+      font-size: 14px;
+      color: #555;
+      font-style: italic;
+      opacity: 0.9;
+      line-height: 1.4;
+    }
+
     .recording-indicator {
       display: inline-block;
       width: 12px;
@@ -124,17 +187,37 @@
     <select id="sourceLang" class="inline">
       <option value="auto">Auto-detect</option>
       <option value="en">English</option>
-      <option value="ar">Arabic</option>
-      <option value="ur" selected>Urdu</option>
-      <option value="hi">Hindi</option>
+      <option value="ar">العربية (Arabic)</option>
+      <option value="ur" selected>اردو (Urdu)</option>
+      <option value="hi">हिन्दी (Hindi)</option>
+      <option value="ml">മലയാളം (Malayalam)</option>
+      <option value="te">తెలుగు (Telugu)</option>
+      <option value="ta">தமிழ் (Tamil)</option>
+      <option value="bn">বাংলা (Bengali)</option>
+      <option value="fr">Français (French)</option>
+      <option value="es">Español (Spanish)</option>
+      <option value="de">Deutsch (German)</option>
+      <option value="zh">中文 (Chinese)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="ko">한국어 (Korean)</option>
     </select>
-    
+
     <label style="margin-left: 12px;">Target:</label>
     <select id="targetLang" class="inline">
       <option value="en" selected>English</option>
-      <option value="ar">Arabic</option>
-      <option value="ur">Urdu</option>
-      <option value="hi">Hindi</option>
+      <option value="ar">العربية (Arabic)</option>
+      <option value="ur">اردو (Urdu)</option>
+      <option value="hi">हिन्दी (Hindi)</option>
+      <option value="ml">മലയാളം (Malayalam)</option>
+      <option value="te">తెలుగు (Telugu)</option>
+      <option value="ta">தமிழ் (Tamil)</option>
+      <option value="bn">বাংলা (Bengali)</option>
+      <option value="fr">Français (French)</option>
+      <option value="es">Español (Spanish)</option>
+      <option value="de">Deutsch (German)</option>
+      <option value="zh">中文 (Chinese)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="ko">한국어 (Korean)</option>
     </select>
   </div>
   

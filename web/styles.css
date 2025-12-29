@@ -519,6 +519,17 @@ input[type="file"] {
     display: block;
 }
 
+/* Warning message */
+.warning-message {
+    background: #fff3cd;
+    border: 2px solid #ffc107;
+    border-radius: var(--radius-md);
+    padding: 15px;
+    color: #856404;
+    margin-bottom: var(--spacing-xl);
+    font-size: 14px;
+}
+
 /* Info message */
 .info-message {
     background: var(--bg-light);

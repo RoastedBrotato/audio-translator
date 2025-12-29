@@ -29,25 +29,39 @@
             <select id="sourceLang">
                 <option value="auto">🔍 Auto-detect</option>
                 <option value="en">English</option>
-                <option value="ar">Arabic</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="zh">Chinese</option>
-                <option value="ja">Japanese</option>
+                <option value="ar">العربية (Arabic)</option>
+                <option value="ur">اردو (Urdu)</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="ml">മലയാളം (Malayalam)</option>
+                <option value="te">తెలుగు (Telugu)</option>
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="bn">বাংলা (Bengali)</option>
+                <option value="fr">Français (French)</option>
+                <option value="es">Español (Spanish)</option>
+                <option value="de">Deutsch (German)</option>
+                <option value="zh">中文 (Chinese)</option>
+                <option value="ja">日本語 (Japanese)</option>
+                <option value="ko">한국어 (Korean)</option>
             </select>
         </div>
-        
+
         <div class="language-selector">
             <label for="targetLang">Translate To:</label>
             <select id="targetLang">
-                <option value="ar">Arabic</option>
                 <option value="en">English</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="zh">Chinese</option>
-                <option value="ja">Japanese</option>
+                <option value="ar">العربية (Arabic)</option>
+                <option value="ur">اردو (Urdu)</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="ml">മലയാളം (Malayalam)</option>
+                <option value="te">తెలుగు (Telugu)</option>
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="bn">বাংলা (Bengali)</option>
+                <option value="fr">Français (French)</option>
+                <option value="es">Español (Spanish)</option>
+                <option value="de">Deutsch (German)</option>
+                <option value="zh">中文 (Chinese)</option>
+                <option value="ja">日本語 (Japanese)</option>
+                <option value="ko">한국어 (Korean)</option>
             </select>
         </div>
         
@@ -60,7 +74,11 @@
             <input type="checkbox" id="cloneVoice" checked>
             <label for="cloneVoice">🎭 Clone original voice (keeps speaker's voice characteristics)</label>
         </div>
-        
+
+        <div class="warning-message" id="voiceCloneWarning" style="display: none;">
+            ⚠️ Voice cloning is not supported for this language. Standard TTS voice will be used instead.
+        </div>
+
         <div class="error-message" id="errorMessage"></div>
         
         <div class="button-group">

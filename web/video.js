@@ -20,10 +20,33 @@ const errorMessage = document.getElementById('errorMessage');
 const generateTTS = document.getElementById('generateTTS');
 const cloneVoice = document.getElementById('cloneVoice');
 const downloadBtn = document.getElementById('downloadBtn');
+const voiceCloneWarning = document.getElementById('voiceCloneWarning');
 
 let selectedFile = null;
 let videoPath = null;
 let progressWS = null;
+
+// Languages supported by voice cloning (XTTS model)
+const voiceCloningSupportedLanguages = [
+    'en', 'es', 'fr', 'de', 'it', 'pt', 'pl', 'tr', 'ru', 'nl',
+    'cs', 'ar', 'zh', 'hu', 'ko', 'ja', 'hi'
+];
+
+// Check if voice cloning is supported for selected language
+function checkVoiceCloningSupport() {
+    const selectedLang = targetLang.value;
+    const isSupported = voiceCloningSupportedLanguages.includes(selectedLang);
+
+    if (!isSupported && cloneVoice.checked) {
+        voiceCloneWarning.style.display = 'block';
+    } else {
+        voiceCloneWarning.style.display = 'none';
+    }
+}
+
+// Listen for target language changes
+targetLang.addEventListener('change', checkVoiceCloningSupport);
+cloneVoice.addEventListener('change', checkVoiceCloningSupport);
 
 // Stage emoji mappings for better UX
 const stageEmojis = {
@@ -262,3 +285,6 @@ downloadBtn.addEventListener('click', () => {
         window.location.href = `/download/${videoPath}`;
     }
 });
+
+// Initialize voice cloning support check on page load
+checkVoiceCloningSupport();

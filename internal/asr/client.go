@@ -156,3 +156,39 @@ func (c *Client) DetectLanguage(wavData []byte) (string, error) {
 	}
 	return r.Language, nil
 }
+
+// DiarizationResult represents transcription with speaker diarization
+type DiarizationResult struct {
+	Text        string                   `json:"text"`
+	Language    string                   `json:"language"`
+	Segments    []map[string]interface{} `json:"segments"`
+	NumSpeakers int                      `json:"num_speakers"`
+}
+
+// TranscribeWithDiarization transcribes audio with speaker diarization
+func (c *Client) TranscribeWithDiarization(wavData []byte, language string) (*DiarizationResult, error) {
+	req, err := http.NewRequest("POST", c.BaseURL+"/transcribe-with-diarization", bytes.NewReader(wavData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "audio/wav")
+	if language != "" {
+		req.Header.Set("x-language", language)
+	}
+
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode >= 300 {
+		return nil, fmt.Errorf("diarization status: %s", res.Status)
+	}
+
+	var result DiarizationResult
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

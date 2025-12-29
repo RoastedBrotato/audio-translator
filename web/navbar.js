@@ -19,7 +19,7 @@ function createNavbar() {
           🎙️ Live Streaming
         </a>
         <a href="recording.html" class="${currentPath === 'recording.html' ? 'active' : ''}">
-          🎤 Recording
+          🎵 Audio Upload
         </a>
         <a href="video.html" class="${currentPath === 'video.html' ? 'active' : ''}">
           🎬 Video Upload

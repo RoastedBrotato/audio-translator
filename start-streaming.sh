@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Load environment variables from .env file
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
 echo "Starting Audio Translator with Streaming Support..."
 echo "=================================================="
 echo ""
@@ -19,6 +24,7 @@ docker run -d \
   --name asr-streaming \
   --gpus all \
   -p 8003:8003 \
+  -e HF_TOKEN="${HF_TOKEN}" \
   --restart unless-stopped \
   asr-streaming:latest
 

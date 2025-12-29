@@ -14,6 +14,8 @@ import os
 import logging
 import asyncio
 from threading import Thread
+import re
+from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +47,32 @@ def load_xtts_model():
         logger.info("Service will continue using gTTS fallback")
     finally:
         model_loading = False
+
+def chunk_text(text, max_chars=250):
+    """
+    Split text into chunks suitable for XTTS v2 voice cloning.
+    XTTS has a limit of ~400 tokens, so we keep chunks around 250 characters
+    to be safe and split on sentence boundaries.
+    """
+    # Split on sentence boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    chunks = []
+    current_chunk = ""
+
+    for sentence in sentences:
+        # If adding this sentence exceeds max_chars, save current chunk and start new one
+        if len(current_chunk) + len(sentence) > max_chars and current_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence
+        else:
+            current_chunk += (" " if current_chunk else "") + sentence
+
+    # Add the last chunk if any
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    return chunks if chunks else [text]
 
 @app.on_event("startup")
 async def startup_event():
@@ -159,34 +187,66 @@ async def synthesize_with_voice(
         
         logger.info(f"Voice cloning synthesis in {language}: {text[:100]}...")
         logger.info(f"Reference audio: {reference_audio.filename}")
-        
+
         # Save reference audio to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as ref_file:
             ref_file.write(await reference_audio.read())
             ref_audio_path = ref_file.name
-        
-        # Create temporary output file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as output_file:
-            output_path = output_file.name
-        
-        # Generate speech with voice cloning
-        logger.info("Cloning voice and generating speech...")
-        tts_model.tts_to_file(
-            text=text,
-            file_path=output_path,
-            speaker_wav=ref_audio_path,
-            language=language
-        )
-        
-        # Read generated audio
-        with open(output_path, "rb") as f:
-            audio_data = f.read()
-        
-        # Cleanup
-        os.unlink(ref_audio_path)
-        os.unlink(output_path)
-        
-        logger.info(f"Voice cloning complete: {len(audio_data)} bytes")
+
+        # Split text into chunks to avoid token limit
+        chunks = chunk_text(text)
+        logger.info(f"Split text into {len(chunks)} chunk(s) for processing")
+
+        # Generate audio for each chunk
+        audio_segments = []
+        temp_files = []
+
+        try:
+            for i, chunk in enumerate(chunks):
+                logger.info(f"Processing chunk {i+1}/{len(chunks)}: {chunk[:50]}...")
+
+                # Create temporary output file for this chunk
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as chunk_file:
+                    chunk_path = chunk_file.name
+                    temp_files.append(chunk_path)
+
+                # Generate speech with voice cloning for this chunk
+                tts_model.tts_to_file(
+                    text=chunk,
+                    file_path=chunk_path,
+                    speaker_wav=ref_audio_path,
+                    language=language
+                )
+
+                # Load audio segment
+                audio_segments.append(AudioSegment.from_wav(chunk_path))
+
+            # Combine all audio segments
+            logger.info(f"Combining {len(audio_segments)} audio segments...")
+            combined_audio = audio_segments[0]
+            for segment in audio_segments[1:]:
+                combined_audio += segment
+
+            # Export combined audio to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as output_file:
+                output_path = output_file.name
+
+            combined_audio.export(output_path, format="wav")
+
+            # Read generated audio
+            with open(output_path, "rb") as f:
+                audio_data = f.read()
+
+            logger.info(f"Voice cloning complete: {len(audio_data)} bytes")
+
+        finally:
+            # Cleanup all temporary files
+            os.unlink(ref_audio_path)
+            if 'output_path' in locals():
+                os.unlink(output_path)
+            for temp_file in temp_files:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
         
         return Response(
             content=audio_data,

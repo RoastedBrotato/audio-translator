@@ -3,102 +3,356 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Recording Translation</title>
+  <title>Audio Upload & Translation</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    .recording-indicator {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background-color: red;
-      animation: pulse 1.5s infinite;
-      margin-right: 8px;
+    .upload-area {
+      border: 2px dashed #667eea;
+      border-radius: 12px;
+      padding: 60px 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+      margin: 30px 0;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
+
+    .upload-area:hover {
+      border-color: #764ba2;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      transform: translateY(-2px);
     }
-    .progress-container {
-      width: 100%;
-      background-color: #e0e0e0;
-      border-radius: 8px;
-      margin: 20px 0;
-      height: 30px;
-      position: relative;
+
+    .upload-area.dragging {
+      border-color: #764ba2;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+      transform: scale(1.02);
+    }
+
+    .upload-icon {
+      font-size: 4rem;
+      margin-bottom: 15px;
+    }
+
+    .upload-text {
+      font-size: 1.3rem;
+      color: #667eea;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .upload-hint {
+      color: #999;
+      font-size: 0.9rem;
+    }
+
+    #audioFile {
       display: none;
     }
-    .progress-bar {
-      height: 100%;
-      background-color: #4CAF50;
+
+    .file-info {
+      background: white;
+      padding: 20px;
       border-radius: 8px;
+      margin: 20px 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: none;
+    }
+
+    .file-info.show {
+      display: block;
+    }
+
+    .file-name {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 5px;
+      font-size: 1.1rem;
+    }
+
+    .file-size {
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    .language-selector {
+      margin: 15px 0;
+    }
+
+    .language-selector label {
+      font-weight: 600;
+      margin-right: 10px;
+      color: #555;
+    }
+
+    .language-selector select {
+      padding: 8px 12px;
+      border: 2px solid #ddd;
+      border-radius: 6px;
+      font-size: 1rem;
+      min-width: 180px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .language-selector select:hover {
+      border-color: #667eea;
+    }
+
+    .language-selector select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .upload-btn, .clear-btn {
+      padding: 12px 30px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .upload-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .upload-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .upload-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .clear-btn {
+      background: white;
+      color: #666;
+      border: 2px solid #ddd;
+    }
+
+    .clear-btn:hover {
+      border-color: #667eea;
+      color: #667eea;
+    }
+
+    .progress-container {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      margin: 20px 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      display: none;
+    }
+
+    .progress-container.show {
+      display: block;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 30px;
+      background: #e0e0e0;
+      border-radius: 15px;
+      overflow: hidden;
+      margin: 15px 0;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      width: 0%;
       transition: width 0.3s ease;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-weight: bold;
+      font-weight: 600;
     }
-    .transcript-container {
-      max-height: 500px;
-      overflow-y: auto;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 15px;
-      margin-top: 20px;
-      background-color: #f9f9f9;
+
+    .progress-stage {
+      text-align: center;
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #667eea;
+      margin-bottom: 10px;
     }
-    .transcript-item {
-      margin-bottom: 20px;
-      padding: 12px;
-      background-color: white;
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .transcript-label {
-      font-weight: bold;
+
+    .progress-text {
+      text-align: center;
       color: #666;
-      font-size: 0.85em;
-      margin-bottom: 5px;
+      font-size: 0.95rem;
     }
-    .transcript-text {
-      font-size: 1em;
-      line-height: 1.5;
+
+    .results {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      margin: 20px 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      display: none;
+      flex-direction: column;
+    }
+
+    .results.show {
+      display: flex;
+    }
+
+    .result-section {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 8px;
+      border-left: 4px solid #667eea;
+    }
+
+    .result-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .result-content {
+      color: #555;
+      line-height: 1.6;
+      white-space: pre-wrap;
       unicode-bidi: plaintext;
     }
-    .download-section {
-      margin-top: 20px;
-      padding: 20px;
-      background-color: #e8f5e9;
+
+    .download-btn {
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+      color: white;
+      padding: 12px 30px;
+      font-size: 1rem;
+      border: none;
       border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      margin: 10px 10px 0 0;
+      display: inline-block;
+      transition: all 0.2s;
+    }
+
+    .download-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    }
+
+    .error-message {
+      background: #ffebee;
+      color: #c62828;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin: 15px 0;
+      border-left: 4px solid #c62828;
       display: none;
     }
-    .chunk-counter {
-      font-size: 0.9em;
-      color: #666;
+
+    .error-message.show {
+      display: block;
+    }
+
+    /* Chat bubble styles for multi-speaker conversations */
+    .translation-bubble {
+      margin: 20px 0;
+      display: flex;
+      flex-direction: column;
+      max-width: 75%;
+    }
+
+    .translation-bubble.translation-left {
+      align-self: flex-start;
+    }
+
+    .translation-bubble.translation-right {
+      align-self: flex-end;
+    }
+
+    .speaker-label {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .translation-left .speaker-label {
+      text-align: left;
       margin-left: 10px;
+    }
+
+    .translation-right .speaker-label {
+      text-align: right;
+      margin-right: 10px;
+    }
+
+    .bubble-content {
+      padding: 15px 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .translation-right .bubble-content {
+      border-left: none !important;
+      border-right: 4px solid;
+    }
+
+    .bubble-original {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 8px;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .bubble-translated {
+      font-size: 14px;
+      color: #555;
+      font-style: italic;
+      opacity: 0.9;
+      line-height: 1.4;
     }
   </style>
 </head>
 <body class="page-simple">
   <div style="text-align: center; margin: 20px 0;">
-    <h2 style="margin: 0;">Recording Translation</h2>
-    <p style="opacity: 0.7; margin: 5px 0;">Record audio for high-quality transcription and translation</p>
+    <h2 style="margin: 0;">Audio Upload & Translation</h2>
+    <p style="opacity: 0.7; margin: 5px 0;">Upload audio files for transcription and translation</p>
   </div>
 
-  <div class="inline-buttons mb-lg">
-    <button id="btnStart" class="btn-primary">
-      <span id="recordingIndicator"></span>
-      Start Recording
-    </button>
-    <button id="btnStop" class="btn-secondary" disabled>Stop Recording</button>
+  <div class="upload-area" id="uploadArea">
+    <div class="upload-icon">🎵</div>
+    <div class="upload-text">Click to upload or drag and drop</div>
+    <div class="upload-hint">MP3, WAV, M4A, FLAC, OGG (max 100MB)</div>
+    <input type="file" id="audioFile" accept="audio/*">
+  </div>
 
-    <label style="margin-left: 20px;">Source Lang:</label>
-    <select id="sourceLang" class="inline">
-      <option value="auto">Auto-detect</option>
+  <div class="file-info" id="fileInfo">
+    <div class="file-name" id="fileName"></div>
+    <div class="file-size" id="fileSize"></div>
+  </div>
+
+  <div class="language-selector">
+    <label for="sourceLang">Source Language:</label>
+    <select id="sourceLang">
+      <option value="auto" selected>🔍 Auto-detect</option>
       <option value="en">English</option>
       <option value="ar">العربية (Arabic)</option>
-      <option value="ur" selected>اردو (Urdu)</option>
+      <option value="ur">اردو (Urdu)</option>
       <option value="hi">हिन्दी (Hindi)</option>
       <option value="ml">മലയാളം (Malayalam)</option>
       <option value="te">తెలుగు (Telugu)</option>
@@ -111,9 +365,11 @@
       <option value="ja">日本語 (Japanese)</option>
       <option value="ko">한국어 (Korean)</option>
     </select>
+  </div>
 
-    <label style="margin-left: 12px;">Target:</label>
-    <select id="targetLang" class="inline">
+  <div class="language-selector">
+    <label for="targetLang">Translate To:</label>
+    <select id="targetLang">
       <option value="en" selected>English</option>
       <option value="ar">العربية (Arabic)</option>
       <option value="ur">اردو (Urdu)</option>
@@ -129,24 +385,47 @@
       <option value="ja">日本語 (Japanese)</option>
       <option value="ko">한국어 (Korean)</option>
     </select>
+  </div>
 
-    <span id="status" class="status">Ready</span>
-    <span id="chunkCounter" class="chunk-counter"></span>
+  <div class="language-selector">
+    <label>
+      <input type="checkbox" id="enableDiarization" style="margin-right: 8px;">
+      👥 Identify different speakers (slower, for conversations)
+    </label>
+  </div>
+
+  <div class="error-message" id="errorMessage"></div>
+
+  <div class="button-group">
+    <button class="upload-btn" id="uploadBtn" disabled>Process Audio</button>
+    <button class="clear-btn" id="clearBtn">Clear</button>
   </div>
 
   <div class="progress-container" id="progressContainer">
-    <div class="progress-bar" id="progressBar">0%</div>
+    <div class="progress-stage" id="progressStage"></div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-text" id="progressText">Processing...</div>
   </div>
 
-  <div class="transcript-container" id="transcriptContainer">
-    <p style="text-align: center; color: #999;">Translations will appear here as they are processed...</p>
-  </div>
+  <div class="results" id="results">
+    <div class="result-section">
+      <div class="result-title">
+        <span>📝</span> Original Transcription
+      </div>
+      <div class="result-content" id="transcription"></div>
+    </div>
 
-  <div class="download-section" id="downloadSection">
-    <h3>✅ Recording Complete!</h3>
-    <p>Your transcript is ready for download.</p>
-    <button id="btnDownloadTxt" class="btn-primary">Download as Text</button>
-    <button id="btnDownloadJson" class="btn-secondary">Download as JSON</button>
+    <div class="result-section">
+      <div class="result-title">
+        <span>🌍</span> Translation
+      </div>
+      <div class="result-content" id="translation"></div>
+    </div>
+
+    <button class="download-btn" id="downloadTxtBtn">📄 Download as Text</button>
+    <button class="download-btn" id="downloadJsonBtn">📋 Download as JSON</button>
   </div>
 
   <script src="navbar.js"></script>

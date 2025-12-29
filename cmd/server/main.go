@@ -248,6 +248,222 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 	}() // End of goroutine
 }
 
+func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, progressMgr *progress.Manager) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse multipart form first (max 100MB)
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		log.Printf("Error parsing form: %v", err)
+		json.NewEncoder(w).Encode(videoUploadResponse{
+			Success: false,
+			Error:   "Failed to parse upload",
+		})
+		return
+	}
+
+	file, header, err := r.FormFile("audio")
+	if err != nil {
+		log.Printf("Error getting file: %v", err)
+		json.NewEncoder(w).Encode(videoUploadResponse{
+			Success: false,
+			Error:   "No audio file provided",
+		})
+		return
+	}
+
+	// Generate session ID for progress tracking
+	sessionID := fmt.Sprintf("audio_%d", time.Now().UnixNano())
+
+	// Read form values before starting goroutine
+	targetLang := r.FormValue("targetLang")
+	if targetLang == "" {
+		targetLang = "en" // Default to English
+	}
+
+	sourceLang := r.FormValue("sourceLang")
+	if sourceLang == "" {
+		sourceLang = "auto" // Default to auto-detect
+	}
+	autoDetect := sourceLang == "auto" || sourceLang == "detect"
+
+	// Check if user wants speaker diarization
+	enableDiarization := r.FormValue("enableDiarization") == "true"
+
+	// Send initial response with session ID immediately
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(videoUploadResponse{
+		Success:   true,
+		SessionID: sessionID,
+	})
+
+	// Process asynchronously
+	go func() {
+		defer file.Close()
+		tracker := progressMgr.NewTracker(sessionID)
+
+		tracker.Update("upload", 10, fmt.Sprintf("Received %s (%.2f MB)", header.Filename, float64(header.Size)/(1024*1024)))
+
+		log.Printf("Processing audio: %s (%.2f MB), source: %s, target: %s", header.Filename, float64(header.Size)/(1024*1024), sourceLang, targetLang)
+
+		tracker.Update("saving", 20, "Saving audio file...")
+
+		// Save uploaded file temporarily
+		tempDir := processor.TempDir
+		tempAudioPath := filepath.Join(tempDir, fmt.Sprintf("upload_audio_%d_%s", time.Now().Unix(), header.Filename))
+		defer os.Remove(tempAudioPath)
+
+		outFile, err := os.Create(tempAudioPath)
+		if err != nil {
+			log.Printf("Error creating temp file: %v", err)
+			tracker.Error("saving", "Failed to save audio", err)
+			return
+		}
+
+		if _, err := io.Copy(outFile, file); err != nil {
+			outFile.Close()
+			log.Printf("Error copying file: %v", err)
+			tracker.Error("saving", "Failed to save audio", err)
+			return
+		}
+		outFile.Close()
+
+		tracker.Update("processing", 30, "Converting audio to WAV format...")
+
+		// Convert audio to WAV format
+		log.Println("Converting audio to WAV...")
+		audioResult, err := processor.ConvertAudioToWAV(tempAudioPath)
+		if err != nil {
+			log.Printf("Error converting audio: %v", err)
+			tracker.Error("processing", "Failed to convert audio", err)
+			return
+		}
+
+		log.Printf("Audio converted: %.2f seconds, %d bytes", audioResult.Duration, len(audioResult.AudioData))
+		tracker.Update("processing", 40, fmt.Sprintf("Audio converted: %.2f seconds", audioResult.Duration))
+
+		// Auto-detect language if requested
+		var detectedLang string
+		if autoDetect {
+			tracker.Update("detection", 45, "Detecting language...")
+			log.Println("Auto-detecting language...")
+			detectedLang, err = asrClient.DetectLanguage(audioResult.AudioData)
+			if err != nil {
+				log.Printf("Error detecting language: %v, defaulting to 'en'", err)
+				detectedLang = "en"
+				sourceLang = "en" // Update sourceLang for transcription
+				tracker.Update("detection", 50, "Language detection failed, using English")
+			} else {
+				log.Printf("Detected language: %s", detectedLang)
+				sourceLang = detectedLang
+				tracker.Update("detection", 50, fmt.Sprintf("Detected language: %s", detectedLang))
+			}
+		}
+
+		// Transcribe audio (with or without diarization)
+		tracker.Update("transcription", 60, "Transcribing audio...")
+		log.Println("Transcribing audio...")
+
+		var transcription string
+		var segments []map[string]interface{}
+		var numSpeakers int
+
+		if enableDiarization {
+			// Use diarization endpoint
+			tracker.Update("transcription", 60, "Transcribing with speaker identification...")
+			log.Println("Using speaker diarization...")
+
+			diarizationResult, err := asrClient.TranscribeWithDiarization(audioResult.AudioData, sourceLang)
+			if err != nil {
+				log.Printf("Error with diarization, falling back to normal transcription: %v", err)
+				// Fallback to normal transcription
+				transcription, err = asrClient.TranscribeWAV(audioResult.AudioData, sourceLang)
+				if err != nil {
+					log.Printf("Error transcribing: %v", err)
+					tracker.Error("transcription", "Failed to transcribe audio", err)
+					return
+				}
+			} else {
+				transcription = diarizationResult.Text
+				segments = diarizationResult.Segments
+				numSpeakers = diarizationResult.NumSpeakers
+				log.Printf("Diarization complete: %d speakers, %d segments", numSpeakers, len(segments))
+			}
+		} else {
+			// Normal transcription
+			transcription, err = asrClient.TranscribeWAV(audioResult.AudioData, sourceLang)
+			if err != nil {
+				log.Printf("Error transcribing: %v", err)
+				tracker.Error("transcription", "Failed to transcribe audio", err)
+				return
+			}
+		}
+
+		log.Printf("Transcription: %s", transcription[:min(len(transcription), 100)])
+		tracker.Update("transcription", 75, "Transcription complete")
+
+		// Translate transcription
+		var translation string
+
+		if len(segments) > 0 {
+			// Translate each segment
+			tracker.Update("translation", 80, fmt.Sprintf("Translating %d segments...", len(segments)))
+			log.Printf("Translating %d segments from %s to %s...", len(segments), sourceLang, targetLang)
+
+			for i, seg := range segments {
+				segText := seg["text"].(string)
+				translatedText, err := translator.TranslateWithSource(segText, sourceLang, targetLang)
+				if err != nil {
+					log.Printf("Error translating segment %d: %v", i, err)
+					translatedText = segText // Fallback to original
+				}
+				seg["translation"] = translatedText
+				segments[i] = seg
+			}
+
+			// Also create full translation
+			translation, _ = translator.TranslateWithSource(transcription, sourceLang, targetLang)
+		} else {
+			// Single translation
+			tracker.Update("translation", 80, fmt.Sprintf("Translating from %s to %s...", sourceLang, targetLang))
+			log.Printf("Translating from %s to %s...", sourceLang, targetLang)
+			translation, err = translator.TranslateWithSource(transcription, sourceLang, targetLang)
+			if err != nil {
+				log.Printf("Error translating: %v", err)
+				tracker.Error("translation", "Failed to translate", err)
+				return
+			}
+		}
+
+		log.Printf("Translation complete")
+		tracker.Update("translation", 90, "Translation complete")
+
+		// Send completion with results
+		results := map[string]interface{}{
+			"transcription": transcription,
+			"translation":   translation,
+		}
+		if detectedLang != "" {
+			results["detectedLang"] = detectedLang
+		}
+		if len(segments) > 0 {
+			results["segments"] = segments
+			results["num_speakers"] = numSpeakers
+		}
+		tracker.CompleteWithResults("Audio processing completed successfully", results)
+		log.Printf("Audio processing completed for session %s", sessionID)
+	}() // End of goroutine
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func main() {
 	// Check if ffmpeg is installed
 	if err := video.CheckFFmpegInstalled(); err != nil {
@@ -296,6 +512,10 @@ func main() {
 
 	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
 		handleVideoUpload(w, r, videoProcessor, asrClient, translator, ttsClient, progressMgr)
+	})
+
+	http.HandleFunc("/upload-audio", func(w http.ResponseWriter, r *http.Request) {
+		handleAudioUpload(w, r, videoProcessor, asrClient, translator, progressMgr)
 	})
 
 	// Recording session management

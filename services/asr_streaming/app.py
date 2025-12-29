@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import torch
@@ -11,6 +11,9 @@ from collections import deque
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
+from pyannote.audio import Pipeline
+import io
+import wave
 
 app = FastAPI()
 
@@ -38,6 +41,25 @@ vad_model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
 (get_speech_timestamps, _, read_audio, _, _) = utils
 print("VAD loaded successfully")
 
+# Load speaker diarization pipeline
+print("Loading speaker diarization pipeline...")
+try:
+    # Don't pass any authentication parameter - will use HF_TOKEN env var if set
+    diarization_pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1"
+    )
+
+    # Move to GPU if available
+    if DEVICE == "cuda":
+        diarization_pipeline.to(torch.device("cuda"))
+    print("Speaker diarization pipeline loaded successfully")
+    DIARIZATION_ENABLED = True
+except Exception as e:
+    print(f"Warning: Could not load speaker diarization pipeline: {e}")
+    print("Speaker diarization will be disabled")
+    diarization_pipeline = None
+    DIARIZATION_ENABLED = False
+
 # Configuration
 SAMPLE_RATE = 16000
 CHUNK_DURATION = 1.0  # Process 1 second at a time for streaming
@@ -51,6 +73,103 @@ executor = ThreadPoolExecutor(max_workers=4)
 
 # Session storage for final high-quality transcriptions
 session_transcriptions: Dict[str, dict] = {}
+
+def audio_array_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) -> bytes:
+    """Convert numpy audio array to WAV bytes for diarization pipeline"""
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, 'wb') as wav_file:
+        wav_file.setnchannels(1)  # Mono
+        wav_file.setsampwidth(2)  # 16-bit
+        wav_file.setframerate(sample_rate)
+        # Convert float32 to int16
+        audio_int16 = (audio_array * 32767).astype(np.int16)
+        wav_file.writeframes(audio_int16.tobytes())
+    wav_buffer.seek(0)
+    return wav_buffer.read()
+
+def perform_speaker_diarization(audio_array: np.ndarray) -> list:
+    """
+    Perform speaker diarization on audio
+    Returns list of (start_time, end_time, speaker_label) tuples
+    """
+    if not DIARIZATION_ENABLED or diarization_pipeline is None:
+        return []
+
+    try:
+        print("🎭 Starting speaker diarization...")
+
+        # Convert audio to WAV format in memory
+        wav_bytes = audio_array_to_wav_bytes(audio_array, SAMPLE_RATE)
+        wav_io = io.BytesIO(wav_bytes)
+
+        # Run diarization
+        diarization = diarization_pipeline({"uri": "stream", "audio": wav_io})
+
+        # Extract speaker segments
+        speaker_segments = []
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            speaker_segments.append({
+                "start": turn.start,
+                "end": turn.end,
+                "speaker": speaker
+            })
+
+        print(f"✅ Diarization complete: found {len(set(s['speaker'] for s in speaker_segments))} speakers")
+        return speaker_segments
+
+    except Exception as e:
+        print(f"❌ Speaker diarization failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def assign_speakers_to_segments(transcription_segments: list, speaker_segments: list) -> list:
+    """
+    Assign speaker labels to transcription segments based on temporal overlap
+    """
+    if not speaker_segments:
+        # No diarization available, return segments without speaker info
+        return transcription_segments
+
+    result = []
+    for seg in transcription_segments:
+        seg_start = seg["start"]
+        seg_end = seg["end"]
+        seg_mid = (seg_start + seg_end) / 2
+
+        # Find the speaker segment that overlaps most with this transcription segment
+        best_speaker = None
+        max_overlap = 0
+
+        for spk in speaker_segments:
+            # Calculate overlap
+            overlap_start = max(seg_start, spk["start"])
+            overlap_end = min(seg_end, spk["end"])
+            overlap = max(0, overlap_end - overlap_start)
+
+            if overlap > max_overlap:
+                max_overlap = overlap
+                best_speaker = spk["speaker"]
+
+        # If no overlap, use midpoint to find closest speaker segment
+        if best_speaker is None:
+            for spk in speaker_segments:
+                if spk["start"] <= seg_mid <= spk["end"]:
+                    best_speaker = spk["speaker"]
+                    break
+
+        # Still no speaker? Use the closest one
+        if best_speaker is None and speaker_segments:
+            closest_spk = min(speaker_segments,
+                            key=lambda s: min(abs(s["start"] - seg_mid), abs(s["end"] - seg_mid)))
+            best_speaker = closest_spk["speaker"]
+
+        result.append({
+            **seg,
+            "speaker": best_speaker or "SPEAKER_00"
+        })
+
+    return result
 
 def transcribe_audio_sync(audio_array: np.ndarray, language: str = None) -> str:
     """Synchronous transcription function to run in thread pool"""
@@ -323,6 +442,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if len(full_audio) > SAMPLE_RATE * 2:  # Only if we have at least 2 seconds
             print("🔄 Starting high-quality re-transcription of full audio...")
             try:
+                # Step 1: Transcribe with Whisper
                 result = whisper_model.transcribe(
                     full_audio,
                     language=transcriber.language,
@@ -340,22 +460,39 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"✅ High-quality transcription complete: '{final_text[:100]}...'")
                 print(f"   Got {len(segments_with_timestamps)} segments with timestamps")
 
-                # Store the high-quality result
+                # Step 2: Perform speaker diarization
+                speaker_segments = perform_speaker_diarization(full_audio)
+
+                # Step 3: Merge transcription segments with speaker labels
+                transcription_segments = [
+                    {
+                        "text": seg["text"].strip(),
+                        "start": seg["start"],
+                        "end": seg["end"]
+                    }
+                    for seg in segments_with_timestamps if seg["text"].strip()
+                ]
+
+                # Assign speakers to segments
+                segments_with_speakers = assign_speakers_to_segments(
+                    transcription_segments,
+                    speaker_segments
+                )
+
+                # Count unique speakers
+                unique_speakers = len(set(s.get("speaker", "SPEAKER_00") for s in segments_with_speakers))
+                print(f"👥 Identified {unique_speakers} unique speaker(s)")
+
+                # Store the high-quality result with speaker labels
                 session_transcriptions[session_id] = {
                     "full_text": final_text,
-                    "segments": [
-                        {
-                            "text": seg["text"].strip(),
-                            "start": seg["start"],
-                            "end": seg["end"]
-                        }
-                        for seg in segments_with_timestamps if seg["text"].strip()
-                    ],
+                    "segments": segments_with_speakers,
                     "language": result.get("language", "unknown"),
-                    "duration": len(full_audio) / SAMPLE_RATE
+                    "duration": len(full_audio) / SAMPLE_RATE,
+                    "num_speakers": unique_speakers
                 }
 
-                print(f"💾 Stored high-quality transcription for session {session_id}")
+                print(f"💾 Stored high-quality transcription with speaker diarization for session {session_id}")
 
             except Exception as e:
                 print(f"❌ High-quality transcription failed: {e}")
@@ -367,6 +504,186 @@ async def websocket_endpoint(websocket: WebSocket):
         import traceback
         traceback.print_exc()
         process_task.cancel()
+
+@app.post("/transcribe")
+async def transcribe_audio(request: Request):
+    """HTTP endpoint for batch audio transcription"""
+    try:
+        # Get audio data from request body
+        audio_data = await request.body()
+
+        # Get language from header (optional)
+        language = request.headers.get("x-language", None)
+        if language == "auto" or language == "":
+            language = None
+
+        print(f"📝 Transcription request: {len(audio_data)} bytes, language={language}")
+
+        # Convert WAV bytes to numpy array
+        import io
+        import wave
+
+        wav_file = io.BytesIO(audio_data)
+        with wave.open(wav_file, 'rb') as wav:
+            frames = wav.readframes(wav.getnframes())
+            audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+        print(f"   Audio: {len(audio_array)} samples ({len(audio_array)/SAMPLE_RATE:.1f}s)")
+
+        # Transcribe with Whisper
+        result = whisper_model.transcribe(
+            audio_array,
+            language=language,
+            fp16=(DEVICE == "cuda"),
+            verbose=False,
+            temperature=0.0,
+            compression_ratio_threshold=2.4,
+            condition_on_previous_text=True
+        )
+
+        text = result["text"].strip()
+        detected_lang = result.get("language", "unknown")
+
+        print(f"   ✅ Transcribed: '{text[:100]}...' (lang: {detected_lang})")
+
+        return JSONResponse(content={"text": text, "language": detected_lang})
+
+    except Exception as e:
+        print(f"❌ Transcription error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.post("/detect-language")
+async def detect_language(request: Request):
+    """HTTP endpoint for language detection"""
+    try:
+        # Get audio data from request body
+        audio_data = await request.body()
+
+        print(f"🔍 Language detection request: {len(audio_data)} bytes")
+
+        # Convert WAV bytes to numpy array
+        import io
+        import wave
+
+        wav_file = io.BytesIO(audio_data)
+        with wave.open(wav_file, 'rb') as wav:
+            frames = wav.readframes(wav.getnframes())
+            audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Transcribe just to detect language (fast, no full transcription)
+        result = whisper_model.transcribe(
+            audio_array[:SAMPLE_RATE * 30],  # Use first 30 seconds max
+            fp16=(DEVICE == "cuda"),
+            verbose=False,
+            temperature=0.0
+        )
+
+        detected_lang = result.get("language", "unknown")
+        text_sample = result["text"].strip()[:100]
+
+        print(f"   ✅ Detected language: {detected_lang}, sample: '{text_sample}...'")
+
+        return JSONResponse(content={
+            "language": detected_lang,
+            "text": text_sample
+        })
+
+    except Exception as e:
+        print(f"❌ Language detection error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.post("/transcribe-with-diarization")
+async def transcribe_with_diarization(request: Request):
+    """HTTP endpoint for batch audio transcription with speaker diarization"""
+    try:
+        # Get audio data from request body
+        audio_data = await request.body()
+
+        # Get language from header (optional)
+        language = request.headers.get("x-language", None)
+        if language == "auto" or language == "":
+            language = None
+
+        print(f"📝🎭 Transcription + Diarization request: {len(audio_data)} bytes, language={language}")
+
+        # Convert WAV bytes to numpy array
+        import io
+        import wave
+
+        wav_file = io.BytesIO(audio_data)
+        with wave.open(wav_file, 'rb') as wav:
+            frames = wav.readframes(wav.getnframes())
+            audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+        print(f"   Audio: {len(audio_array)} samples ({len(audio_array)/SAMPLE_RATE:.1f}s)")
+
+        # Step 1: Transcribe with Whisper
+        result = whisper_model.transcribe(
+            audio_array,
+            language=language,
+            fp16=(DEVICE == "cuda"),
+            verbose=False,
+            temperature=0.0,
+            compression_ratio_threshold=2.4,
+            condition_on_previous_text=True,
+            word_timestamps=True
+        )
+
+        full_text = result["text"].strip()
+        detected_lang = result.get("language", "unknown")
+        segments_with_timestamps = result.get("segments", [])
+
+        print(f"   ✅ Transcribed: '{full_text[:100]}...' (lang: {detected_lang})")
+        print(f"   Got {len(segments_with_timestamps)} segments")
+
+        # Step 2: Perform speaker diarization
+        speaker_segments = perform_speaker_diarization(audio_array)
+
+        # Step 3: Merge transcription segments with speaker labels
+        transcription_segments = [
+            {
+                "text": seg["text"].strip(),
+                "start": seg["start"],
+                "end": seg["end"]
+            }
+            for seg in segments_with_timestamps if seg["text"].strip()
+        ]
+
+        # Assign speakers to segments
+        segments_with_speakers = assign_speakers_to_segments(
+            transcription_segments,
+            speaker_segments
+        )
+
+        # Count unique speakers
+        unique_speakers = len(set(s.get("speaker", "SPEAKER_00") for s in segments_with_speakers))
+        print(f"   👥 Identified {unique_speakers} unique speaker(s)")
+
+        return JSONResponse(content={
+            "text": full_text,
+            "language": detected_lang,
+            "segments": segments_with_speakers,
+            "num_speakers": unique_speakers
+        })
+
+    except Exception as e:
+        print(f"❌ Transcription + Diarization error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 @app.get("/health")
 async def health():

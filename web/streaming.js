@@ -116,7 +116,7 @@ async function startStreaming() {
     btnStart.disabled = true;
     btnStop.disabled = false;
     sourceLang.disabled = true;
-    targetLang.disabled = true;
+    targetLang.disabled = true;St
     recordingIndicator.innerHTML = '<span class="recording-indicator"></span>';
     liveCaption.innerHTML = '<span style="opacity: 0.5;">🎤 Listening... Speak now!</span>';
 
@@ -233,13 +233,45 @@ async function translateSegment(text, index) {
   }
 }
 
+// Speaker color mapping
+const speakerColors = {
+  'SPEAKER_00': { bg: '#e3f2fd', border: '#2196f3', align: 'left', name: 'Person 1' },
+  'SPEAKER_01': { bg: '#f3e5f5', border: '#9c27b0', align: 'right', name: 'Person 2' },
+  'SPEAKER_02': { bg: '#e8f5e9', border: '#4caf50', align: 'left', name: 'Person 3' },
+  'SPEAKER_03': { bg: '#fff3e0', border: '#ff9800', align: 'right', name: 'Person 4' }
+};
+
+// Get speaker style (cycles through colors if more than 4 speakers)
+function getSpeakerStyle(speaker) {
+  const speakerKeys = Object.keys(speakerColors);
+  const speakerKey = speakerKeys[parseInt(speaker.split('_')[1] || '0') % speakerKeys.length];
+  return speakerColors[speakerKey];
+}
+
 function addTranslationToUI(segment) {
   const div = document.createElement('div');
-  div.className = 'translation-item';
-  div.innerHTML = `
-    <div class="translation-original">${escapeHtml(segment.original)}</div>
-    <div class="translation-translated">→ ${escapeHtml(segment.translation || 'Translating...')}</div>
-  `;
+
+  if (segment.speaker) {
+    // Chat bubble style with speaker labels
+    const style = getSpeakerStyle(segment.speaker);
+
+    div.className = `translation-bubble translation-${style.align}`;
+    div.innerHTML = `
+      <div class="speaker-label" style="color: ${style.border};">${style.name}</div>
+      <div class="bubble-content" style="background: ${style.bg}; border-left: 4px solid ${style.border};">
+        <div class="bubble-original">${escapeHtml(segment.original)}</div>
+        <div class="bubble-translated">→ ${escapeHtml(segment.translation || 'Translating...')}</div>
+      </div>
+    `;
+  } else {
+    // Original style without speaker labels
+    div.className = 'translation-item';
+    div.innerHTML = `
+      <div class="translation-original">${escapeHtml(segment.original)}</div>
+      <div class="translation-translated">→ ${escapeHtml(segment.translation || 'Translating...')}</div>
+    `;
+  }
+
   translationsContainer.appendChild(div);
   translationsContainer.scrollTop = translationsContainer.scrollHeight;
 }
@@ -284,13 +316,19 @@ async function triggerFinalProcessing() {
           original: segment.text,
           timestamp: new Date().toISOString(),
           start: segment.start,
-          end: segment.end
+          end: segment.end,
+          speaker: segment.speaker || null  // Include speaker info if available
         });
 
         segmentCount++;
 
         // Translate the improved segment
         await translateSegment(segment.text, index);
+      }
+
+      // Log speaker info if available
+      if (result.data.num_speakers) {
+        console.log(`👥 Detected ${result.data.num_speakers} speaker(s) in conversation`);
       }
 
       document.getElementById('segmentCount').textContent = segmentCount;

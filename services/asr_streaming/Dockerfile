@@ -16,8 +16,12 @@ COPY requirements.txt .
 # Install Python packages
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy application
+# Copy application files
 COPY app.py .
+COPY preload_models.py .
+
+# Pre-download models during build (caches them in the Docker image)
+RUN python3 preload_models.py
 
 # Expose port
 EXPOSE 8003
