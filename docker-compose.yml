@@ -5,8 +5,6 @@ services:
     build:
       context: ./services/asr_streaming
       dockerfile: Dockerfile
-      cache_from:
-        - asr_streaming:latest
     image: asr_streaming:latest
     ports:
       - "8003:8003"
@@ -30,8 +28,6 @@ services:
     build:
       context: ./services/translate_py
       dockerfile: Dockerfile
-      cache_from:
-        - translate_py:latest
     image: translate_py:latest
     ports:
       - "8004:8004"
@@ -43,8 +39,6 @@ services:
     build:
       context: ./services/tts_py
       dockerfile: Dockerfile
-      cache_from:
-        - tts_py:latest
     image: tts_py:latest
     ports:
       - "8005:8005"
