@@ -11,6 +11,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Copy application code
 COPY app.py .
 
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
 # Expose port
 EXPOSE 8004
 

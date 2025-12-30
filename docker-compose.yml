@@ -15,10 +15,15 @@ services:
       - huggingface_cache:/root/.cache/huggingface
     deploy:
       resources:
+        limits:
+          cpus: '4'
+          memory: 8G
         reservations:
+          cpus: '2'
+          memory: 4G
           devices:
             - driver: nvidia
-              count: all
+              count: 1
               capabilities: [gpu]
     environment:
       - CUDA_VISIBLE_DEVICES=0
@@ -38,7 +43,16 @@ services:
     ports:
       - "8004:8004"
     volumes:
-      - transformers_cache:/root/.cache/huggingface
+      # Share HuggingFace cache with ASR service
+      - huggingface_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health').read()"]
       interval: 30s
@@ -58,6 +72,14 @@ services:
       - tts_cache:/root/.cache/tts
     environment:
       - COQUI_TOS_AGREED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health').read()"]
       interval: 30s
@@ -70,6 +92,5 @@ services:
 volumes:
   whisper_cache:
   torch_cache:
-  huggingface_cache:
-  transformers_cache:
+  huggingface_cache:  # Shared between ASR and translation services
   tts_cache:
