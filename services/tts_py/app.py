@@ -40,8 +40,17 @@ def load_xtts_model():
     global tts_model, model_loading
     try:
         logger.info("Loading XTTS v2 model in background... This may take a few minutes...")
-        tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
-        logger.info("✓ XTTS v2 model loaded successfully!")
+        import torch
+        gpu_available = torch.cuda.is_available()
+        logger.info(f"GPU available: {gpu_available}")
+
+        # Load model with GPU if available
+        tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=gpu_available)
+
+        if gpu_available:
+            logger.info(f"✓ XTTS v2 model loaded on GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            logger.info("✓ XTTS v2 model loaded on CPU")
     except Exception as e:
         logger.warning(f"XTTS v2 not available: {e}")
         logger.info("Service will continue using gTTS fallback")

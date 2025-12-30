@@ -27,6 +27,7 @@ services:
               capabilities: [gpu]
     environment:
       - CUDA_VISIBLE_DEVICES=0
+      - HF_TOKEN=${HF_TOKEN}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health').read()"]
       interval: 30s
@@ -72,6 +73,7 @@ services:
       - tts_cache:/root/.local/share/tts
     environment:
       - COQUI_TOS_AGREED=1
+      - CUDA_VISIBLE_DEVICES=0
     deploy:
       resources:
         limits:
@@ -80,6 +82,10 @@ services:
         reservations:
           cpus: '1'
           memory: 2G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health').read()"]
       interval: 30s

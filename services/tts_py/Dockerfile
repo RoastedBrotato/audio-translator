@@ -34,13 +34,6 @@ ENV PATH=/root/.local/bin:$PATH
 # Set environment variable to bypass TTS CPML license prompt
 ENV COQUI_TOS_AGREED=1
 
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app /root/.local
-
-# Switch to non-root user
-USER appuser
-
 # Expose port
 EXPOSE 8005
 
