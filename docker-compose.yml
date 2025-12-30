@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  asr_streaming:
+    build:
+      context: ./services/asr_streaming
+      dockerfile: Dockerfile
+      cache_from:
+        - asr_streaming:latest
+    image: asr_streaming:latest
+    ports:
+      - "8003:8003"
+    volumes:
+      # Persist model caches so they don't re-download
+      - whisper_cache:/root/.cache/whisper
+      - torch_cache:/root/.cache/torch
+      - huggingface_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    restart: unless-stopped
+
+  translate_py:
+    build:
+      context: ./services/translate_py
+      dockerfile: Dockerfile
+      cache_from:
+        - translate_py:latest
+    image: translate_py:latest
+    ports:
+      - "8004:8004"
+    volumes:
+      - transformers_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+  tts_py:
+    build:
+      context: ./services/tts_py
+      dockerfile: Dockerfile
+      cache_from:
+        - tts_py:latest
+    image: tts_py:latest
+    ports:
+      - "8005:8005"
+    volumes:
+      - tts_cache:/root/.cache/tts
+    environment:
+      - COQUI_TOS_AGREED=1
+    restart: unless-stopped
+
+# Named volumes for persistent model storage
+volumes:
+  whisper_cache:
+  torch_cache:
+  huggingface_cache:
+  transformers_cache:
+  tts_cache:

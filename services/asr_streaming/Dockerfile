@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04
 
 # Install Python and dependencies
@@ -13,8 +14,9 @@ WORKDIR /app
 # Copy requirements
 COPY requirements.txt .
 
-# Install Python packages
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Install Python packages with BuildKit cache mount
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip3 install -r requirements.txt
 
 # Copy application files
 COPY app.py .
