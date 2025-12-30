@@ -29,6 +29,11 @@ Thumbs.db
 *.md
 README.md
 
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+
 # Tests
 test*.py
 *_test.py

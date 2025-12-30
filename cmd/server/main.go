@@ -23,7 +23,30 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true }, // dev only
+	CheckOrigin: func(r *http.Request) bool {
+		// Get allowed origins from environment variable (comma-separated)
+		// Example: ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
+		allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
+
+		// For development, allow all origins if not configured
+		// In production, you MUST set ALLOWED_ORIGINS
+		if allowedOriginsEnv == "" {
+			log.Println("WARNING: ALLOWED_ORIGINS not set - allowing all origins (development mode)")
+			return true
+		}
+
+		origin := r.Header.Get("Origin")
+		allowedOrigins := strings.Split(allowedOriginsEnv, ",")
+
+		for _, allowed := range allowedOrigins {
+			if strings.TrimSpace(allowed) == origin {
+				return true
+			}
+		}
+
+		log.Printf("Rejected WebSocket connection from unauthorized origin: %s", origin)
+		return false
+	},
 }
 
 type videoUploadResponse struct {
