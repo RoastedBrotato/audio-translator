@@ -23,6 +23,8 @@
 # - This script does NOT rebuild images if they already exist
 # - If you modified code, run './build-docker.sh' first, then this script
 # - Model caches are preserved in Docker volumes (no re-downloads)
+# - Safe to run multiple times - will detect and handle already-running containers
+# - Automatically detects and stops old standalone containers that conflict
 #
 # TO STOP:
 # - Stop all: docker compose down && pkill -f bin/server
@@ -41,6 +43,27 @@ echo ""
 export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
 
+# Check for old standalone containers that might conflict with docker-compose
+OLD_CONTAINERS=$(docker ps --format "{{.Names}}" | grep -E "^(asr-streaming|audio-translator-asr|audio-translator-translate|audio-translator-tts)$" || true)
+
+if [ -n "$OLD_CONTAINERS" ]; then
+    echo "⚠️  Found old standalone containers that will conflict with docker-compose:"
+    echo "$OLD_CONTAINERS"
+    echo ""
+    read -p "Stop these old containers? [Y/n] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+        echo "⏹️  Stopping old containers..."
+        echo "$OLD_CONTAINERS" | xargs docker stop
+        echo "✓ Old containers stopped"
+        echo ""
+    else
+        echo "❌ Cannot proceed with conflicting containers running."
+        echo "   Please stop them manually: docker stop $OLD_CONTAINERS"
+        exit 1
+    fi
+fi
+
 # Check if images exist, if not build them
 if ! docker images | grep -q "asr_streaming.*latest"; then
     echo "📦 Images not found. Building for the first time (this will take a while)..."
@@ -48,9 +71,14 @@ if ! docker images | grep -q "asr_streaming.*latest"; then
     echo ""
 fi
 
-# Start services
+# Start services (this is idempotent - won't fail if already running)
 echo "▶️  Starting containers..."
-docker compose up -d
+if ! docker compose up -d; then
+    echo ""
+    echo "❌ Failed to start containers. Check for port conflicts:"
+    echo "   Ports in use: $(docker ps --format '{{.Names}}\t{{.Ports}}' | grep -E '8003|8004|8005|8080')"
+    exit 1
+fi
 
 # Wait a moment for services to initialize
 sleep 2
