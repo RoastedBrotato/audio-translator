@@ -1,6 +1,34 @@
 #!/bin/bash
 # Start all audio-translator services and the Go web server
-
+#
+# WHAT THIS DOES:
+# - Checks if Docker images exist, builds them if missing (first-time setup)
+# - Starts ASR, Translation, and TTS containers in background
+# - Builds and starts the Go web server on port 8080
+# - Shows service status and URLs
+#
+# WHEN TO USE:
+# - First time setup (will build everything automatically)
+# - After a reboot or when containers are stopped
+# - When you want to restart all services
+#
+# WHAT TO EXPECT:
+# - If images exist: Starts in ~10-30 seconds
+# - If images need building: 15-30 minutes for first build
+# - ASR container takes ~60 seconds to load models and become healthy
+# - TTS container takes ~40 seconds to load XTTS v2 model
+# - All containers will auto-restart if they crash
+#
+# IMPORTANT:
+# - This script does NOT rebuild images if they already exist
+# - If you modified code, run './build-docker.sh' first, then this script
+# - Model caches are preserved in Docker volumes (no re-downloads)
+#
+# TO STOP:
+# - Stop all: docker compose down && pkill -f bin/server
+# - Stop just Docker: docker compose down
+# - Stop just web server: kill $(cat bin/server.pid)
+#
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)

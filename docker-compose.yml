@@ -69,7 +69,7 @@ services:
     ports:
       - "8005:8005"
     volumes:
-      - tts_cache:/root/.cache/tts
+      - tts_cache:/root/.local/share/tts
     environment:
       - COQUI_TOS_AGREED=1
     deploy:

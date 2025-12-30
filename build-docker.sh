@@ -1,5 +1,26 @@
 #!/bin/bash
-# Build script with Docker BuildKit enabled for better caching
+# Build Docker images for all audio-translator services
+#
+# WHAT THIS DOES:
+# - Builds ASR, Translation, and TTS Docker images with BuildKit caching
+# - Uses layer caching to skip unchanged steps (much faster on rebuilds)
+# - Does NOT start containers (use start-services.sh for that)
+#
+# WHEN TO USE:
+# - After modifying Dockerfiles or Python code
+# - To rebuild specific services: ./build-docker.sh asr_streaming
+# - To force rebuild without cache: ./build-docker.sh --no-cache
+#
+# WHAT TO EXPECT:
+# - First build: 15-30 minutes (downloads models, base images)
+# - Subsequent builds: 1-5 minutes (uses cache for unchanged layers)
+# - BuildKit will show parallel build progress for all services
+#
+# AFTER BUILD:
+# - Images are tagged as: asr_streaming:latest, translate_py:latest, tts_py:latest
+# - Model cache volumes persist between rebuilds (no re-downloads)
+# - Run './start-services.sh' to start containers with new images
+#
 set -euo pipefail
 
 # Enable BuildKit for better caching and parallel builds

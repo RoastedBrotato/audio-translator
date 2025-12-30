@@ -11,8 +11,9 @@ print("=" * 60)
 # Pre-download Whisper medium model
 print("\n1. Downloading Whisper medium model...")
 MODEL_SIZE = "medium"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"   Device: {DEVICE}")
+# Always use CPU during build - GPU not available at build time
+DEVICE = "cpu"
+print(f"   Device: {DEVICE} (GPU will be used at runtime)")
 whisper_model = whisper.load_model(MODEL_SIZE, device=DEVICE)
 print(f"   ✓ Whisper {MODEL_SIZE} model downloaded successfully")
 
