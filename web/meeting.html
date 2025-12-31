@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Meeting - Audio Translator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 50px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 32px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 16px;
+        }
+
+        .option-container {
+            display: grid;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .option-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .option-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .option-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .option-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .option-desc {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .divider {
+            text-align: center;
+            color: #999;
+            margin: 30px 0;
+            position: relative;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 40%;
+            height: 1px;
+            background: #e0e0e0;
+        }
+
+        .divider::before {
+            left: 0;
+        }
+
+        .divider::after {
+            right: 0;
+        }
+
+        .join-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+        }
+
+        .join-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .back-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .room-code-display {
+            background: #e7f3ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .room-code-display .label {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .room-code-display .code {
+            font-size: 32px;
+            font-weight: 700;
+            color: #667eea;
+            letter-spacing: 3px;
+        }
+
+        .room-code-display .copy-btn {
+            margin-top: 15px;
+            padding: 8px 20px;
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .room-code-display .copy-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Real-time Meetings</h1>
+        <p class="subtitle">Speak in any language, understand in yours</p>
+
+        <div class="option-container">
+            <div class="option-card" onclick="createMeeting()">
+                <div class="option-icon">➕</div>
+                <div class="option-title">Create New Meeting</div>
+                <div class="option-desc">Start a new meeting room and invite others</div>
+                <button class="btn-primary" id="createBtn">Create Meeting</button>
+            </div>
+        </div>
+
+        <div class="divider">OR</div>
+
+        <div class="join-section">
+            <h3>Join Existing Meeting</h3>
+            <div class="input-group">
+                <input type="text" id="roomCodeInput" placeholder="Enter room code (e.g., ABC-123)" />
+                <button class="btn-primary" id="joinBtn" onclick="joinMeeting()" style="width: auto; padding: 12px 24px;">
+                    Join
+                </button>
+            </div>
+            <p style="color: #666; font-size: 13px;">Enter the meeting code shared by the host</p>
+        </div>
+
+        <div id="messageContainer"></div>
+
+        <div class="back-link">
+            <a href="index.html">← Back to Home</a>
+        </div>
+    </div>
+
+    <script>
+        async function createMeeting() {
+            const createBtn = document.getElementById('createBtn');
+            const messageContainer = document.getElementById('messageContainer');
+
+            createBtn.disabled = true;
+            createBtn.innerHTML = '<div class="loading"><span class="spinner"></span> Creating...</div>';
+            messageContainer.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/meetings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to create meeting');
+                }
+
+                // Show success with room code
+                messageContainer.innerHTML = `
+                    <div class="success-message">
+                        Meeting created successfully!
+                    </div>
+                    <div class="room-code-display">
+                        <div class="label">Share this code with others:</div>
+                        <div class="code">${data.roomCode}</div>
+                        <button class="copy-btn" onclick="copyRoomCode('${data.roomCode}')">
+                            📋 Copy Code
+                        </button>
+                        <div style="margin-top: 20px;">
+                            <button class="btn-primary" onclick="joinWithCode('${data.roomCode}')">
+                                Join Meeting
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                createBtn.innerHTML = 'Create Meeting';
+                createBtn.disabled = false;
+
+            } catch (error) {
+                console.error('Create meeting error:', error);
+                messageContainer.innerHTML = `
+                    <div class="error-message">
+                        Failed to create meeting: ${error.message}
+                    </div>
+                `;
+                createBtn.innerHTML = 'Create Meeting';
+                createBtn.disabled = false;
+            }
+        }
+
+        function joinMeeting() {
+            const roomCode = document.getElementById('roomCodeInput').value.trim();
+            if (!roomCode) {
+                alert('Please enter a room code');
+                return;
+            }
+            joinWithCode(roomCode);
+        }
+
+        function joinWithCode(roomCode) {
+            window.location.href = `meeting-join.html?roomCode=${roomCode}`;
+        }
+
+        function copyRoomCode(code) {
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Room code copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        // Allow Enter key to join meeting
+        document.getElementById('roomCodeInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                joinMeeting();
+            }
+        });
+    </script>
+</body>
+</html>

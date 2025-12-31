@@ -15,6 +15,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"realtime-caption-translator/internal/asr"
+	"realtime-caption-translator/internal/database"
+	"realtime-caption-translator/internal/meeting"
 	"realtime-caption-translator/internal/progress"
 	"realtime-caption-translator/internal/session"
 	"realtime-caption-translator/internal/translate"
@@ -487,7 +489,219 @@ func min(a, b int) int {
 	return b
 }
 
+// Meeting API Handlers
+
+func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Create meeting in database
+	meeting, err := database.CreateMeeting(nil) // Anonymous meeting (no creator)
+	if err != nil {
+		log.Printf("Error creating meeting: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to create meeting",
+		})
+		return
+	}
+
+	log.Printf("Created meeting: %s (room code: %s)", meeting.ID, meeting.RoomCode)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"meetingId": meeting.ID,
+		"roomCode":  meeting.RoomCode,
+	})
+}
+
+func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract room code from URL path
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 4 {
+		http.Error(w, "Invalid room code", http.StatusBadRequest)
+		return
+	}
+	roomCode := pathParts[3]
+
+	// Parse request body
+	var req struct {
+		ParticipantName string `json:"participantName"`
+		TargetLanguage  string `json:"targetLanguage"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate inputs
+	if req.ParticipantName == "" {
+		http.Error(w, "Participant name is required", http.StatusBadRequest)
+		return
+	}
+	if req.TargetLanguage == "" {
+		req.TargetLanguage = "en" // Default to English
+	}
+
+	// Get meeting by room code
+	mtg, err := database.GetMeetingByRoomCode(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to find meeting",
+		})
+		return
+	}
+
+	if mtg == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Meeting not found",
+		})
+		return
+	}
+
+	if !mtg.IsActive {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Meeting has ended",
+		})
+		return
+	}
+
+	// Add participant to database
+	participant, err := database.AddParticipant(mtg.ID, nil, req.ParticipantName, req.TargetLanguage)
+	if err != nil {
+		log.Printf("Error adding participant: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to join meeting",
+		})
+		return
+	}
+
+	log.Printf("Participant %d (%s) joined meeting %s", participant.ID, participant.ParticipantName, mtg.ID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"participantId": participant.ID,
+		"meetingId":     mtg.ID,
+	})
+}
+
+func handleGetMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract room code from URL path: /api/meetings/K1N-G-A
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 4 {
+		http.Error(w, "Invalid room code", http.StatusBadRequest)
+		return
+	}
+	roomCode := pathParts[3]
+
+	// Get meeting by room code
+	mtg, err := database.GetMeetingByRoomCode(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to find meeting",
+		})
+		return
+	}
+
+	if mtg == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Meeting not found",
+		})
+		return
+	}
+
+	// Get active participants from database
+	participants, err := database.GetActiveParticipants(mtg.ID)
+	if err != nil {
+		log.Printf("Error getting participants: %v", err)
+		participants = []database.MeetingParticipant{} // Return empty array on error
+	}
+
+	// Convert to response format
+	participantList := make([]map[string]interface{}, len(participants))
+	for i, p := range participants {
+		participantList[i] = map[string]interface{}{
+			"id":             p.ID,
+			"name":           p.ParticipantName,
+			"targetLanguage": p.TargetLanguage,
+			"joinedAt":       p.JoinedAt,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"meetingId":    mtg.ID,
+		"roomCode":     mtg.RoomCode,
+		"isActive":     mtg.IsActive,
+		"participants": participantList,
+	})
+}
+
+func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
+	// Route based on URL pattern
+	// /api/meetings/{roomCode} - GET meeting info
+	// /api/meetings/{roomCode}/join - POST to join
+	pathParts := strings.Split(r.URL.Path, "/")
+
+	if len(pathParts) < 4 {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+
+	// Check if it's a join request
+	if len(pathParts) >= 5 && pathParts[4] == "join" {
+		handleJoinMeeting(w, r, roomManager)
+		return
+	}
+
+	// Otherwise, it's a get meeting info request
+	handleGetMeeting(w, r, roomManager)
+}
+
 func main() {
+	// Initialize database
+	log.Println("Initializing database connection...")
+	if err := database.Init(); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+	log.Println("Database connection established")
+
+	// Create meeting room manager
+	roomManager := meeting.NewRoomManager()
+	log.Println("Meeting room manager initialized")
+
 	// Check if ffmpeg is installed
 	if err := video.CheckFFmpegInstalled(); err != nil {
 		log.Printf("Warning: %v - Video upload feature will not work", err)
@@ -539,6 +753,12 @@ func main() {
 
 	http.HandleFunc("/upload-audio", func(w http.ResponseWriter, r *http.Request) {
 		handleAudioUpload(w, r, videoProcessor, asrClient, translator, progressMgr)
+	})
+
+	// Meeting API endpoints
+	http.HandleFunc("/api/meetings", handleCreateMeeting)
+	http.HandleFunc("/api/meetings/", func(w http.ResponseWriter, r *http.Request) {
+		handleMeetingOperations(w, r, roomManager)
 	})
 
 	// Recording session management
@@ -721,6 +941,46 @@ func main() {
 		log.Println("Streaming WebSocket connection requested")
 		// Note: Clients should connect directly to ws://localhost:8003/stream
 		http.Error(w, "Connect to ws://localhost:8003/stream", http.StatusOK)
+	})
+
+	// Meeting WebSocket - for real-time meeting rooms
+	http.HandleFunc("/ws/meeting/", func(w http.ResponseWriter, r *http.Request) {
+		// Extract meeting ID from URL path
+		pathParts := strings.Split(r.URL.Path, "/")
+		if len(pathParts) < 4 {
+			http.Error(w, "Invalid meeting ID", http.StatusBadRequest)
+			return
+		}
+		meetingID := pathParts[3]
+
+		// Get query parameters
+		query := r.URL.Query()
+		participantIDStr := query.Get("participantId")
+		participantName := query.Get("participantName")
+		targetLang := query.Get("targetLang")
+
+		// Validate parameters
+		if participantIDStr == "" || participantName == "" || targetLang == "" {
+			http.Error(w, "Missing required parameters: participantId, participantName, targetLang", http.StatusBadRequest)
+			return
+		}
+
+		// Parse participant ID
+		var participantID int
+		if _, err := fmt.Sscanf(participantIDStr, "%d", &participantID); err != nil {
+			http.Error(w, "Invalid participant ID", http.StatusBadRequest)
+			return
+		}
+
+		// Upgrade to WebSocket
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Meeting WebSocket upgrade error: %v", err)
+			return
+		}
+
+		// Handle the connection
+		go roomManager.HandleMeetingWebSocket(conn, meetingID, participantID, participantName, targetLang)
 	})
 
 	log.Println("listening on :8080")

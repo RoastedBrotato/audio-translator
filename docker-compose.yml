@@ -94,9 +94,28 @@ services:
       start_period: 40s
     restart: unless-stopped
 
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=${DB_NAME:-audio_translator}
+      - POSTGRES_USER=${DB_USER:-audio_translator}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-audio_translator_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-audio_translator}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 # Named volumes for persistent model storage
 volumes:
   whisper_cache:
   torch_cache:
   huggingface_cache:  # Shared between ASR and translation services
   tts_cache:
+  postgres_data:
