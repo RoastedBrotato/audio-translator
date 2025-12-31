@@ -7,11 +7,12 @@ from faster_whisper import WhisperModel
 import whisper  # OpenAI Whisper for actual transcription
 import asyncio
 import json
+import os
 from collections import deque
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
-from pyannote.audio import Pipeline
+from pyannote.audio import Pipeline, Inference
 import io
 import wave
 
@@ -46,19 +47,50 @@ print("Loading speaker diarization pipeline...")
 try:
     # Don't pass any authentication parameter - will use HF_TOKEN env var if set
     diarization_pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1"
+        "pyannote/speaker-diarization-3.1",
+        use_auth_token=os.getenv("HF_TOKEN")
     )
 
     # Move to GPU if available
     if DEVICE == "cuda":
         diarization_pipeline.to(torch.device("cuda"))
-    print("Speaker diarization pipeline loaded successfully")
+    
+    # Tune parameters for better accuracy
+    # min_duration_on: minimum duration of speech to consider it a speaker turn (reduce false positives)
+    # min_duration_off: minimum silence between speakers (prevents rapid switching)
+    diarization_pipeline.instantiate({
+        "segmentation": {
+            "min_duration_on": 0.5,  # Minimum 0.5s of speech per segment
+            "min_duration_off": 0.3  # Minimum 0.3s silence between speakers
+        },
+        "clustering": {
+            "threshold": 0.7  # Higher = more conservative (fewer but more accurate speaker switches)
+        }
+    })
+    
+    print("Speaker diarization pipeline loaded successfully with tuned parameters")
     DIARIZATION_ENABLED = True
 except Exception as e:
     print(f"Warning: Could not load speaker diarization pipeline: {e}")
     print("Speaker diarization will be disabled")
     diarization_pipeline = None
     DIARIZATION_ENABLED = False
+
+# Load speaker embedding model for persistent speaker tracking
+print("Loading speaker embedding model...")
+try:
+    embedding_inference = Inference(
+        "pyannote/embedding",
+        use_auth_token=os.getenv("HF_TOKEN"),
+        window="whole",
+        device=DEVICE
+    )
+    EMBEDDING_ENABLED = True
+    print("Speaker embedding model loaded successfully")
+except Exception as e:
+    print(f"Warning: Could not load speaker embedding model: {e}")
+    embedding_inference = None
+    EMBEDDING_ENABLED = False
 
 # Configuration
 SAMPLE_RATE = 16000
@@ -68,11 +100,16 @@ VAD_THRESHOLD = 0.3  # Voice activity detection threshold (lowered for better se
 SILENCE_DURATION = 1.2  # Seconds of silence to finalize segment
 MAX_SEGMENT_DURATION = 10.0  # Max seconds before forcing finalization (new!)
 
+# Speaker tracking configuration
+SPEAKER_SIM_THRESHOLD = 0.82
+MIN_EMBED_DURATION = 0.8
+
 # Thread pool for CPU-bound operations
 executor = ThreadPoolExecutor(max_workers=4)
 
 # Session storage for final high-quality transcriptions
 session_transcriptions: Dict[str, dict] = {}
+session_speaker_profiles: Dict[str, dict] = {}
 
 def audio_array_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) -> bytes:
     """Convert numpy audio array to WAV bytes for diarization pipeline"""
@@ -87,13 +124,89 @@ def audio_array_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) 
     wav_buffer.seek(0)
     return wav_buffer.read()
 
-def perform_speaker_diarization(audio_array: np.ndarray) -> list:
+def perform_speaker_diarization(audio_array: np.ndarray, min_speakers: Optional[int] = None, max_speakers: Optional[int] = None) -> list:
     """
     Perform speaker diarization on audio
     Returns list of (start_time, end_time, speaker_label) tuples
     """
     if not DIARIZATION_ENABLED or diarization_pipeline is None:
         return []
+
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    denom = (np.linalg.norm(a) * np.linalg.norm(b))
+    if denom == 0:
+        return 0.0
+    return float(np.dot(a, b) / denom)
+
+def _get_session_state(session_id: str) -> dict:
+    state = session_speaker_profiles.get(session_id)
+    if state is None:
+        state = {"next_id": 0, "profiles": []}
+        session_speaker_profiles[session_id] = state
+    return state
+
+def _compute_embedding(audio_array: np.ndarray, start: float, end: float) -> Optional[np.ndarray]:
+    if not EMBEDDING_ENABLED or embedding_inference is None:
+        return None
+    start_idx = max(0, int(start * SAMPLE_RATE))
+    end_idx = min(len(audio_array), int(end * SAMPLE_RATE))
+    if end_idx <= start_idx:
+        return None
+    segment = audio_array[start_idx:end_idx]
+    if len(segment) < int(MIN_EMBED_DURATION * SAMPLE_RATE):
+        return None
+    waveform = torch.from_numpy(segment).float().unsqueeze(0)
+    emb = embedding_inference({"waveform": waveform, "sample_rate": SAMPLE_RATE})
+    if isinstance(emb, torch.Tensor):
+        emb = emb.detach().cpu().numpy()
+    return np.squeeze(emb)
+
+def assign_persistent_speakers(speaker_segments: list, audio_array: np.ndarray, session_id: Optional[str]) -> list:
+    if not session_id or not speaker_segments or not EMBEDDING_ENABLED:
+        return speaker_segments
+
+    state = _get_session_state(session_id)
+    label_cache: Dict[str, str] = {}
+
+    for seg in speaker_segments:
+        label = seg.get("speaker", "SPEAKER_00")
+        if label in label_cache:
+            seg["speaker"] = label_cache[label]
+            continue
+
+        emb = _compute_embedding(audio_array, seg["start"], seg["end"])
+        if emb is None:
+            continue
+
+        best_id = None
+        best_sim = -1.0
+        for profile in state["profiles"]:
+            sim = _cosine_similarity(emb, profile["embedding"])
+            if sim > best_sim:
+                best_sim = sim
+                best_id = profile["id"]
+
+        if best_id is not None and best_sim >= SPEAKER_SIM_THRESHOLD:
+            for profile in state["profiles"]:
+                if profile["id"] == best_id:
+                    count = profile["count"]
+                    profile["embedding"] = (profile["embedding"] * count + emb) / (count + 1)
+                    profile["count"] = count + 1
+                    break
+            seg["speaker"] = best_id
+            label_cache[label] = best_id
+        else:
+            new_id = f"SPEAKER_{state['next_id']:02d}"
+            state["next_id"] += 1
+            state["profiles"].append({
+                "id": new_id,
+                "embedding": emb,
+                "count": 1
+            })
+            seg["speaker"] = new_id
+            label_cache[label] = new_id
+
+    return speaker_segments
 
     try:
         print("🎭 Starting speaker diarization...")
@@ -103,18 +216,32 @@ def perform_speaker_diarization(audio_array: np.ndarray) -> list:
         wav_io = io.BytesIO(wav_bytes)
 
         # Run diarization
-        diarization = diarization_pipeline({"uri": "stream", "audio": wav_io})
+        diarization_kwargs = {"uri": "stream", "audio": wav_io}
+        if min_speakers is not None:
+            diarization_kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            diarization_kwargs["max_speakers"] = max_speakers
+        diarization = diarization_pipeline(diarization_kwargs)
 
-        # Extract speaker segments
+        # Extract speaker segments (filter out very short segments)
+        MIN_SEGMENT_DURATION = 0.4  # Ignore segments shorter than 0.4 seconds
         speaker_segments = []
         for turn, _, speaker in diarization.itertracks(yield_label=True):
-            speaker_segments.append({
-                "start": turn.start,
-                "end": turn.end,
-                "speaker": speaker
-            })
+            duration = turn.end - turn.start
+            if duration >= MIN_SEGMENT_DURATION:
+                speaker_segments.append({
+                    "start": turn.start,
+                    "end": turn.end,
+                    "speaker": speaker
+                })
+            else:
+                print(f"⚠️ Filtering out short segment: {duration:.2f}s from {speaker}")
 
         print(f"✅ Diarization complete: found {len(set(s['speaker'] for s in speaker_segments))} speakers")
+        
+        # Post-process: smooth rapid speaker changes (reduces confusion)
+        speaker_segments = smooth_speaker_changes(speaker_segments)
+        
         return speaker_segments
 
     except Exception as e:
@@ -122,6 +249,39 @@ def perform_speaker_diarization(audio_array: np.ndarray) -> list:
         import traceback
         traceback.print_exc()
         return []
+
+def smooth_speaker_changes(speaker_segments: list, min_switch_duration: float = 0.5) -> list:
+    """
+    Smooth out rapid speaker changes that are likely errors.
+    If a speaker appears for less than min_switch_duration between two segments of the same speaker,
+    merge it with the surrounding speaker.
+    """
+    if len(speaker_segments) < 3:
+        return speaker_segments
+    
+    smoothed = [speaker_segments[0]]
+    
+    for i in range(1, len(speaker_segments) - 1):
+        current = speaker_segments[i]
+        prev = smoothed[-1]
+        next_seg = speaker_segments[i + 1]
+        
+        current_duration = current["end"] - current["start"]
+        
+        # If current segment is very short AND surrounded by same speaker, skip it
+        if (current_duration < min_switch_duration and 
+            prev["speaker"] == next_seg["speaker"] and 
+            current["speaker"] != prev["speaker"]):
+            print(f"🔧 Smoothing: merging short {current['speaker']} segment ({current_duration:.2f}s) into {prev['speaker']}")
+            # Extend previous segment to cover the gap
+            smoothed[-1]["end"] = current["end"]
+        else:
+            smoothed.append(current)
+    
+    # Add last segment
+    smoothed.append(speaker_segments[-1])
+    
+    return smoothed
 
 def assign_speakers_to_segments(transcription_segments: list, speaker_segments: list) -> list:
     """
@@ -614,7 +774,8 @@ async def transcribe_with_diarization(request: Request):
         if language == "auto" or language == "":
             language = None
 
-        print(f"📝🎭 Transcription + Diarization request: {len(audio_data)} bytes, language={language}")
+        session_id = request.query_params.get("session_id")
+        print(f"📝🎭 Transcription + Diarization request: {len(audio_data)} bytes, language={language}, session={session_id}")
 
         # Convert WAV bytes to numpy array
         import io
@@ -647,7 +808,14 @@ async def transcribe_with_diarization(request: Request):
         print(f"   Got {len(segments_with_timestamps)} segments")
 
         # Step 2: Perform speaker diarization
-        speaker_segments = perform_speaker_diarization(audio_array)
+        min_speakers = request.query_params.get("min_speakers")
+        max_speakers = request.query_params.get("max_speakers")
+        min_speakers = int(min_speakers) if min_speakers and min_speakers.isdigit() else None
+        max_speakers = int(max_speakers) if max_speakers and max_speakers.isdigit() else None
+
+        speaker_segments = perform_speaker_diarization(audio_array, min_speakers=min_speakers, max_speakers=max_speakers)
+        # Step 2.5: Stabilize speaker IDs across chunks (if session_id provided)
+        speaker_segments = assign_persistent_speakers(speaker_segments, audio_array, session_id)
 
         # Step 3: Merge transcription segments with speaker labels
         transcription_segments = [

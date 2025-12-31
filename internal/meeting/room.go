@@ -61,6 +61,30 @@ func (rm *RoomManager) AddParticipant(meetingID string, participant *Participant
 		participant.ID, participant.Name, meetingID, len(room.Participants))
 }
 
+// UpdateParticipantLanguage updates a participant's target language in a room
+func (rm *RoomManager) UpdateParticipantLanguage(meetingID string, participantID int, targetLanguage string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	room, exists := rm.activeRooms[meetingID]
+	if !exists {
+		return
+	}
+
+	participant, exists := room.Participants[participantID]
+	if !exists {
+		return
+	}
+
+	participant.TargetLanguage = targetLanguage
+
+	// Rebuild target languages cache
+	room.targetLangs = make(map[string]bool)
+	for _, p := range room.Participants {
+		room.targetLangs[p.TargetLanguage] = true
+	}
+}
+
 // RemoveParticipant removes a participant from a room
 func (rm *RoomManager) RemoveParticipant(meetingID string, participantID int) {
 	rm.mu.Lock()
@@ -94,6 +118,10 @@ func (rm *RoomManager) Broadcast(meetingID string, message Message) {
 
 	if !exists || room.IsEmpty() {
 		return
+	}
+
+	if message.Type == "transcription" {
+		room.AddTranscriptFromMessage(message)
 	}
 
 	data, err := json.Marshal(message)
@@ -158,6 +186,17 @@ func (rm *RoomManager) GetUniqueTargetLanguages(meetingID string) []string {
 	}
 
 	return room.GetUniqueTargetLanguages()
+}
+
+// GetTranscript retrieves the transcript for a meeting and language
+func (rm *RoomManager) GetTranscript(meetingID, language string) []TranscriptEntry {
+	rm.mu.RLock()
+	room, exists := rm.activeRooms[meetingID]
+	rm.mu.RUnlock()
+	if !exists {
+		return nil
+	}
+	return room.GetTranscript(language)
 }
 
 // GetActiveRoomCount returns the number of active rooms

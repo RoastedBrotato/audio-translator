@@ -167,6 +167,22 @@
             font-size: 14px;
         }
 
+        .caption-speaker.speaker-diarization {
+            color: #764ba2;
+            font-weight: 700;
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(118, 75, 162, 0.1);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .caption-speaker.speaker-diarization:hover {
+            background: rgba(118, 75, 162, 0.2);
+            transform: scale(1.05);
+        }
+
         .caption-text {
             color: #333;
             line-height: 1.6;
@@ -326,7 +342,10 @@
 <body>
     <div class="meeting-container">
         <header class="meeting-header">
-            <h1>Meeting: <span id="roomCode"></span></h1>
+            <div>
+                <h1>Meeting: <span id="roomCode"></span></h1>
+                <small id="meetingMode" style="color: rgba(255,255,255,0.8);"></small>
+            </div>
             <button id="leaveButton" class="btn-secondary">Leave Meeting</button>
         </header>
 
@@ -375,6 +394,11 @@
                     <option value="hi">Hindi (हिन्दी)</option>
                 </select>
             </div>
+
+            <button id="downloadTranscript" class="btn-control">
+                <span>📄</span>
+                <span>Download Transcript</span>
+            </button>
 
             <div class="audio-level">
                 <span>Volume:</span>

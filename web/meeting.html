@@ -255,12 +255,22 @@
         <h1>Real-time Meetings</h1>
         <p class="subtitle">Speak in any language, understand in yours</p>
 
-        <div class="option-container">
-            <div class="option-card" onclick="createMeeting()">
-                <div class="option-icon">➕</div>
-                <div class="option-title">Create New Meeting</div>
-                <div class="option-desc">Start a new meeting room and invite others</div>
-                <button class="btn-primary" id="createBtn">Create Meeting</button>
+        <div class="mode-selection" id="modeSelection">
+            <h3 style="margin-bottom: 20px; color: #333;">Choose Meeting Mode</h3>
+            <div class="option-container">
+                <div class="option-card" onclick="selectMode('individual')">
+                    <div class="option-icon">📱</div>
+                    <div class="option-title">Individual Devices</div>
+                    <div class="option-desc">Each person joins from their own device with their own microphone</div>
+                    <button class="btn-primary">Select</button>
+                </div>
+
+                <div class="option-card" onclick="selectMode('shared')">
+                    <div class="option-icon">🎤</div>
+                    <div class="option-title">Shared Room</div>
+                    <div class="option-desc">Multiple people speak into one microphone (uses speaker identification)</div>
+                    <button class="btn-primary">Select</button>
+                </div>
             </div>
         </div>
 
@@ -285,20 +295,24 @@
     </div>
 
     <script>
-        async function createMeeting() {
-            const createBtn = document.getElementById('createBtn');
-            const messageContainer = document.getElementById('messageContainer');
+        let selectedMode = '';
 
-            createBtn.disabled = true;
-            createBtn.innerHTML = '<div class="loading"><span class="spinner"></span> Creating...</div>';
-            messageContainer.innerHTML = '';
+        function selectMode(mode) {
+            selectedMode = mode;
+            createMeeting(mode);
+        }
+
+        async function createMeeting(mode) {
+            const messageContainer = document.getElementById('messageContainer');
+            messageContainer.innerHTML = '<div class="loading"><span class="spinner"></span> Creating meeting...</div>';
 
             try {
                 const response = await fetch('/api/meetings', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({ mode: mode })
                 });
 
                 const data = await response.json();
@@ -308,9 +322,10 @@
                 }
 
                 // Show success with room code
+                const modeLabel = mode === 'shared' ? 'Shared Room (Speaker Identification)' : 'Individual Devices';
                 messageContainer.innerHTML = `
                     <div class="success-message">
-                        Meeting created successfully!
+                        Meeting created successfully! (${modeLabel})
                     </div>
                     <div class="room-code-display">
                         <div class="label">Share this code with others:</div>
@@ -325,9 +340,6 @@
                         </div>
                     </div>
                 `;
-
-                createBtn.innerHTML = 'Create Meeting';
-                createBtn.disabled = false;
 
             } catch (error) {
                 console.error('Create meeting error:', error);

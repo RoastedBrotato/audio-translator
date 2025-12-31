@@ -12,12 +12,13 @@ let myParticipantName = null;
 let myTargetLanguage = null;
 let meetingId = null;
 let roomCode = null;
+let meetingMode = null;
 
 // Track speaking participants
 const speakingParticipants = new Set();
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     // Get session data
     myParticipantId = sessionStorage.getItem('participantId');
     myParticipantName = sessionStorage.getItem('participantName');
@@ -34,6 +35,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Display room code
     document.getElementById('roomCode').textContent = roomCode || meetingId;
+
+    // Fetch meeting info to get mode
+    try {
+        const response = await fetch(`/api/meetings/${roomCode || meetingId}`);
+        const data = await response.json();
+        if (data.success) {
+            meetingMode = data.mode;
+            const modeText = meetingMode === 'shared' ? '🎤 Shared Room (Speaker Identification)' : '📱 Individual Devices';
+            document.getElementById('meetingMode').textContent = modeText;
+        }
+    } catch (error) {
+        console.error('Failed to fetch meeting info:', error);
+        meetingMode = 'individual'; // Default
+    }
 
     // Set language selector
     document.getElementById('languageChange').value = myTargetLanguage;
@@ -56,7 +71,12 @@ function setupEventListeners() {
     document.getElementById('languageChange').addEventListener('change', function(e) {
         myTargetLanguage = e.target.value;
         sessionStorage.setItem('targetLanguage', myTargetLanguage);
-        // TODO: Send language update to server
+        if (meetingWs && meetingWs.readyState === WebSocket.OPEN) {
+            meetingWs.send(JSON.stringify({
+                type: 'update_language',
+                targetLanguage: myTargetLanguage
+            }));
+        }
     });
 
     // Reconnect button
@@ -64,6 +84,9 @@ function setupEventListeners() {
         document.getElementById('connectionStatus').style.display = 'none';
         connectToMeeting();
     });
+
+    // Download transcript
+    document.getElementById('downloadTranscript').addEventListener('click', downloadTranscript);
 }
 
 async function connectToMeeting() {
@@ -171,11 +194,23 @@ function handleMeetingMessage(message) {
             showSystemMessage(`${message.participantName} left the meeting`);
             break;
 
+        case 'participant_language_updated':
+            updateParticipantLanguageInUI(message.participantId, message.targetLanguage);
+            if (message.participantId !== parseInt(myParticipantId)) {
+                showSystemMessage(`Participant updated language to ${getLanguageName(message.targetLanguage)}`);
+            }
+            break;
+
         case 'transcription':
             // Show translation in MY language
             const myTranslation = message.translations[myTargetLanguage] || message.originalText;
             const isMe = message.speakerParticipantId === parseInt(myParticipantId);
-            displayCaption(message.speakerName, myTranslation, isMe, message.speakerParticipantId);
+            displayCaption(message.speakerName, myTranslation, isMe, message.speakerParticipantId, message.speakerId);
+            break;
+
+        case 'speaker_name_updated':
+            updateSpeakerNameInUI(message.speakerId, message.speakerName);
+            showSystemMessage(`Speaker renamed to: ${message.speakerName}`);
             break;
 
         case 'error':
@@ -217,6 +252,17 @@ function addParticipantToUI(participant) {
     updateParticipantCount();
 }
 
+function updateParticipantLanguageInUI(participantId, targetLanguage) {
+    const element = document.getElementById(`participant-${participantId}`);
+    if (!element) {
+        return;
+    }
+    const langEl = element.querySelector('.participant-lang');
+    if (langEl) {
+        langEl.textContent = getLanguageName(targetLanguage);
+    }
+}
+
 function removeParticipantFromUI(participantId) {
     const element = document.getElementById(`participant-${participantId}`);
     if (element) {
@@ -236,7 +282,7 @@ function removeParticipantFromUI(participantId) {
     }
 }
 
-function displayCaption(speakerName, text, isMe, speakerParticipantId) {
+function displayCaption(speakerName, text, isMe, speakerParticipantId, speakerId) {
     const container = document.getElementById('captionsContainer');
 
     // Remove empty state if exists
@@ -247,16 +293,30 @@ function displayCaption(speakerName, text, isMe, speakerParticipantId) {
 
     const caption = document.createElement('div');
     caption.className = isMe ? 'caption-item caption-me' : 'caption-item';
+
+    // Add speaker label styling for shared room mode
+    // Make speaker labels clickable in shared mode for renaming
+    let speakerLabel;
+    if (meetingMode === 'shared' && speakerId) {
+        speakerLabel = `<div class="caption-speaker speaker-diarization" data-speaker-id="${speakerId}" onclick="promptRenameSpeaker('${speakerId}', '${speakerName}')" title="Click to rename speaker">[${speakerName}] ✏️</div>`;
+    } else if (meetingMode === 'shared') {
+        speakerLabel = `<div class="caption-speaker speaker-diarization">[${speakerName}]</div>`;
+    } else {
+        speakerLabel = `<div class="caption-speaker">[${speakerName}]</div>`;
+    }
+
     caption.innerHTML = `
-        <div class="caption-speaker">[${speakerName}]</div>
+        ${speakerLabel}
         <div class="caption-text">${text}</div>
     `;
 
     container.appendChild(caption);
     container.scrollTop = container.scrollHeight; // Auto-scroll to bottom
 
-    // Show speaking indicator
-    showSpeakingIndicator(speakerParticipantId);
+    // Show speaking indicator (only for individual mode with participant ID)
+    if (speakerParticipantId) {
+        showSpeakingIndicator(speakerParticipantId);
+    }
 
     // Keep only last 50 captions for performance
     while (container.children.length > 50) {
@@ -368,6 +428,88 @@ function convertToPCM16(float32Array) {
     }
 
     return buffer;
+}
+
+// Speaker name mapping functions
+function promptRenameSpeaker(speakerId, currentName) {
+    const newName = prompt(`Rename speaker:\nCurrent: ${currentName}\nEnter new name:`, currentName);
+    if (newName && newName.trim() !== '' && newName !== currentName) {
+        renameSpeaker(speakerId, newName.trim());
+    }
+}
+
+async function renameSpeaker(speakerId, newName) {
+    try {
+        const response = await fetch(`/api/meetings/${roomCode || meetingId}/speakers/${speakerId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                speakerName: newName
+            })
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            alert('Failed to rename speaker: ' + (data.error || 'Unknown error'));
+        }
+        // Update will come via WebSocket broadcast
+    } catch (error) {
+        console.error('Error renaming speaker:', error);
+        alert('Failed to rename speaker');
+    }
+}
+
+async function downloadTranscript() {
+    try {
+        const lang = myTargetLanguage || 'en';
+        const meetingKey = roomCode || meetingId;
+        const response = await fetch(`/api/meetings/${meetingKey}/transcript?lang=${encodeURIComponent(lang)}`);
+        if (!response.ok) {
+            const errorText = await response.text();
+            alert(`Failed to download transcript: ${errorText || response.status}`);
+            return;
+        }
+
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+            alert('No transcript available yet.');
+            return;
+        }
+
+        let filename = `meeting_${meetingKey}_${lang}.txt`;
+        const disposition = response.headers.get('Content-Disposition');
+        if (disposition) {
+            const match = disposition.match(/filename=\"?([^\";]+)\"?/);
+            if (match && match[1]) {
+                filename = match[1];
+            }
+        }
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Error downloading transcript:', error);
+        alert('Failed to download transcript');
+    }
+}
+
+function updateSpeakerNameInUI(speakerId, newName) {
+    // Update all caption speaker labels with this speaker ID
+    const captions = document.querySelectorAll(`[data-speaker-id="${speakerId}"]`);
+    captions.forEach(caption => {
+        // Update the text content while preserving the edit icon
+        const oldName = caption.textContent.replace(' ✏️', '').replace('[', '').replace(']', '');
+        caption.innerHTML = `[${newName}] ✏️`;
+        caption.setAttribute('onclick', `promptRenameSpeaker('${speakerId}', '${newName}')`);
+    });
 }
 
 // Handle page unload

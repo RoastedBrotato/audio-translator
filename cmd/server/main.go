@@ -497,8 +497,31 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse request body
+	var req struct {
+		Mode string `json:"mode"` // "individual" or "shared"
+	}
+
+	// Try to parse JSON, but don't fail if empty (default to individual)
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Default to individual mode
+	if req.Mode == "" {
+		req.Mode = "individual"
+	}
+
+	// Validate mode
+	if req.Mode != "individual" && req.Mode != "shared" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid mode. Must be 'individual' or 'shared'",
+		})
+		return
+	}
+
 	// Create meeting in database
-	meeting, err := database.CreateMeeting(nil) // Anonymous meeting (no creator)
+	meeting, err := database.CreateMeeting(nil, req.Mode) // Anonymous meeting (no creator)
 	if err != nil {
 		log.Printf("Error creating meeting: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -509,13 +532,14 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Created meeting: %s (room code: %s)", meeting.ID, meeting.RoomCode)
+	log.Printf("Created meeting: %s (room code: %s, mode: %s)", meeting.ID, meeting.RoomCode, meeting.Mode)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":   true,
 		"meetingId": meeting.ID,
 		"roomCode":  meeting.RoomCode,
+		"mode":      meeting.Mode,
 	})
 }
 
@@ -619,8 +643,8 @@ func handleGetMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeti
 	}
 	roomCode := pathParts[3]
 
-	// Get meeting by room code
-	mtg, err := database.GetMeetingByRoomCode(roomCode)
+	// Get meeting by room code or ID
+	mtg, err := getMeetingByCodeOrID(roomCode)
 	if err != nil {
 		log.Printf("Error getting meeting: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -663,15 +687,162 @@ func handleGetMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeti
 		"success":      true,
 		"meetingId":    mtg.ID,
 		"roomCode":     mtg.RoomCode,
+		"mode":         mtg.Mode,
 		"isActive":     mtg.IsActive,
 		"participants": participantList,
 	})
+}
+
+func handleUpdateSpeakerName(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, roomCode, speakerID string) {
+	// Parse request body
+	var req struct {
+		SpeakerName string `json:"speakerName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate inputs
+	if req.SpeakerName == "" {
+		http.Error(w, "Speaker name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get meeting by room code or ID
+	mtg, err := getMeetingByCodeOrID(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to find meeting",
+		})
+		return
+	}
+
+	if mtg == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Meeting not found",
+		})
+		return
+	}
+
+	if !mtg.IsActive {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Meeting has ended",
+		})
+		return
+	}
+
+	// Save speaker name mapping to database
+	if err := database.SetSpeakerName(mtg.ID, speakerID, req.SpeakerName); err != nil {
+		log.Printf("Error saving speaker name: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to save speaker name",
+		})
+		return
+	}
+
+	log.Printf("Updated speaker %s in meeting %s to name: %s", speakerID, mtg.ID, req.SpeakerName)
+
+	// Broadcast update to all participants in the room
+	roomManager.Broadcast(mtg.ID, meeting.Message{
+		Type:        "speaker_name_updated",
+		SpeakerID:   speakerID,
+		SpeakerName: req.SpeakerName,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"speakerId":   speakerID,
+		"speakerName": req.SpeakerName,
+	})
+}
+
+func handleDownloadTranscript(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, roomCode string) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		http.Error(w, "lang is required", http.StatusBadRequest)
+		return
+	}
+
+	mtg, err := getMeetingByCodeOrID(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		return
+	}
+	if mtg == nil {
+		http.Error(w, "Meeting not found", http.StatusNotFound)
+		return
+	}
+
+	entries := roomManager.GetTranscript(mtg.ID, lang)
+	content := formatTranscript(entries)
+
+	filename := fmt.Sprintf("meeting_%s_%s.txt", mtg.RoomCode, lang)
+	if mtg.RoomCode == "" {
+		filename = fmt.Sprintf("meeting_%s_%s.txt", mtg.ID, lang)
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(content)); err != nil {
+		log.Printf("Failed to write transcript response: %v", err)
+	}
+}
+
+func formatTranscript(entries []meeting.TranscriptEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, entry := range entries {
+		speaker := entry.SpeakerName
+		if speaker == "" {
+			speaker = entry.SpeakerID
+		}
+		if speaker == "" {
+			speaker = "Speaker"
+		}
+		ts := entry.Timestamp.Format("15:04:05")
+		b.WriteString(fmt.Sprintf("[%s] %s: %s\n", ts, speaker, entry.Text))
+	}
+	return b.String()
+}
+
+func getMeetingByCodeOrID(codeOrID string) (*database.Meeting, error) {
+	mtg, err := database.GetMeetingByRoomCode(codeOrID)
+	if err != nil {
+		return nil, err
+	}
+	if mtg != nil {
+		return mtg, nil
+	}
+	return database.GetMeetingByID(codeOrID)
 }
 
 func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
 	// Route based on URL pattern
 	// /api/meetings/{roomCode} - GET meeting info
 	// /api/meetings/{roomCode}/join - POST to join
+	// /api/meetings/{roomCode}/speakers/{speakerId} - POST to update speaker name
+	// /api/meetings/{roomCode}/transcript - GET to download transcript (lang query param)
 	pathParts := strings.Split(r.URL.Path, "/")
 
 	if len(pathParts) < 4 {
@@ -682,6 +853,18 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 	// Check if it's a join request
 	if len(pathParts) >= 5 && pathParts[4] == "join" {
 		handleJoinMeeting(w, r, roomManager)
+		return
+	}
+
+	// Check if it's a transcript download: /api/meetings/{roomCode}/transcript
+	if len(pathParts) >= 5 && pathParts[4] == "transcript" && r.Method == "GET" {
+		handleDownloadTranscript(w, r, roomManager, pathParts[3])
+		return
+	}
+
+	// Check if it's a speaker name update: /api/meetings/{roomCode}/speakers/{speakerId}
+	if len(pathParts) >= 6 && pathParts[4] == "speakers" && r.Method == "POST" {
+		handleUpdateSpeakerName(w, r, roomManager, pathParts[3], pathParts[5])
 		return
 	}
 

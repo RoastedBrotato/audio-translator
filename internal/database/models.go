@@ -22,10 +22,20 @@ type User struct {
 type Meeting struct {
 	ID        string     `json:"id"`
 	RoomCode  string     `json:"roomCode"`
+	Mode      string     `json:"mode"` // "individual" or "shared"
 	CreatedBy *int       `json:"createdBy,omitempty"`
 	CreatedAt time.Time  `json:"createdAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 	IsActive  bool       `json:"isActive"`
+}
+
+// SpeakerMapping represents a speaker name mapping for shared room mode
+type SpeakerMapping struct {
+	ID          int       `json:"id"`
+	MeetingID   string    `json:"meetingId"`
+	SpeakerID   string    `json:"speakerId"`   // e.g., "SPEAKER_00"
+	SpeakerName string    `json:"speakerName"` // User-assigned name
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // MeetingParticipant represents a participant in a meeting
@@ -111,7 +121,12 @@ func generateRoomCode() (string, error) {
 }
 
 // CreateMeeting creates a new meeting
-func CreateMeeting(createdByUserID *int) (*Meeting, error) {
+func CreateMeeting(createdByUserID *int, mode string) (*Meeting, error) {
+	// Default to individual mode if not specified
+	if mode == "" {
+		mode = "individual"
+	}
+
 	roomCode, err := generateRoomCode()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate room code: %w", err)
@@ -120,15 +135,16 @@ func CreateMeeting(createdByUserID *int) (*Meeting, error) {
 	meetingID := fmt.Sprintf("MTG_%d", time.Now().UnixNano())
 
 	query := `
-		INSERT INTO meetings (id, room_code, created_by, is_active)
-		VALUES ($1, $2, $3, true)
-		RETURNING id, room_code, created_by, created_at, ended_at, is_active
+		INSERT INTO meetings (id, room_code, mode, created_by, is_active)
+		VALUES ($1, $2, $3, $4, true)
+		RETURNING id, room_code, mode, created_by, created_at, ended_at, is_active
 	`
 
 	var meeting Meeting
-	err = DB.QueryRow(query, meetingID, roomCode, createdByUserID).Scan(
+	err = DB.QueryRow(query, meetingID, roomCode, mode, createdByUserID).Scan(
 		&meeting.ID,
 		&meeting.RoomCode,
+		&meeting.Mode,
 		&meeting.CreatedBy,
 		&meeting.CreatedAt,
 		&meeting.EndedAt,
@@ -144,7 +160,7 @@ func CreateMeeting(createdByUserID *int) (*Meeting, error) {
 // GetMeetingByRoomCode retrieves a meeting by room code
 func GetMeetingByRoomCode(roomCode string) (*Meeting, error) {
 	query := `
-		SELECT id, room_code, created_by, created_at, ended_at, is_active
+		SELECT id, room_code, mode, created_by, created_at, ended_at, is_active
 		FROM meetings
 		WHERE room_code = $1
 	`
@@ -153,6 +169,7 @@ func GetMeetingByRoomCode(roomCode string) (*Meeting, error) {
 	err := DB.QueryRow(query, roomCode).Scan(
 		&meeting.ID,
 		&meeting.RoomCode,
+		&meeting.Mode,
 		&meeting.CreatedBy,
 		&meeting.CreatedAt,
 		&meeting.EndedAt,
@@ -171,7 +188,7 @@ func GetMeetingByRoomCode(roomCode string) (*Meeting, error) {
 // GetMeetingByID retrieves a meeting by ID
 func GetMeetingByID(meetingID string) (*Meeting, error) {
 	query := `
-		SELECT id, room_code, created_by, created_at, ended_at, is_active
+		SELECT id, room_code, mode, created_by, created_at, ended_at, is_active
 		FROM meetings
 		WHERE id = $1
 	`
@@ -180,6 +197,7 @@ func GetMeetingByID(meetingID string) (*Meeting, error) {
 	err := DB.QueryRow(query, meetingID).Scan(
 		&meeting.ID,
 		&meeting.RoomCode,
+		&meeting.Mode,
 		&meeting.CreatedBy,
 		&meeting.CreatedAt,
 		&meeting.EndedAt,
@@ -361,4 +379,70 @@ func GetUniqueTargetLanguages(meetingID string) ([]string, error) {
 	}
 
 	return languages, nil
+}
+
+// --- Speaker Mapping CRUD operations (for shared room mode) ---
+
+// SetSpeakerName creates or updates a speaker name mapping
+func SetSpeakerName(meetingID, speakerID, speakerName string) error {
+	query := `
+		INSERT INTO speaker_mappings (meeting_id, speaker_id, speaker_name)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (meeting_id, speaker_id)
+		DO UPDATE SET speaker_name = EXCLUDED.speaker_name
+	`
+
+	_, err := DB.Exec(query, meetingID, speakerID, speakerName)
+	if err != nil {
+		return fmt.Errorf("failed to set speaker name: %w", err)
+	}
+
+	return nil
+}
+
+// GetSpeakerMappings retrieves all speaker name mappings for a meeting
+func GetSpeakerMappings(meetingID string) (map[string]string, error) {
+	query := `
+		SELECT speaker_id, speaker_name
+		FROM speaker_mappings
+		WHERE meeting_id = $1
+	`
+
+	rows, err := DB.Query(query, meetingID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get speaker mappings: %w", err)
+	}
+	defer rows.Close()
+
+	mappings := make(map[string]string)
+	for rows.Next() {
+		var speakerID, speakerName string
+		if err := rows.Scan(&speakerID, &speakerName); err != nil {
+			return nil, fmt.Errorf("failed to scan speaker mapping: %w", err)
+		}
+		mappings[speakerID] = speakerName
+	}
+
+	return mappings, nil
+}
+
+// GetSpeakerName retrieves the name for a specific speaker
+func GetSpeakerName(meetingID, speakerID string) (string, error) {
+	query := `
+		SELECT speaker_name
+		FROM speaker_mappings
+		WHERE meeting_id = $1 AND speaker_id = $2
+	`
+
+	var speakerName string
+	err := DB.QueryRow(query, meetingID, speakerID).Scan(&speakerName)
+	if err == sql.ErrNoRows {
+		// Return speaker ID as default if no mapping exists
+		return speakerID, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get speaker name: %w", err)
+	}
+
+	return speakerName, nil
 }
