@@ -7,24 +7,42 @@
   <link rel="stylesheet" href="styles.css">
   <style>
     .caption-container {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 40px 20px;
+      padding: 28px 0;
       min-height: 200px;
-      border-radius: 12px;
-      margin: 20px 0;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      margin: 24px 0;
+      border-top: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .streaming-header {
+      text-align: center;
+      margin: 28px 0 20px;
+    }
+
+    .streaming-title {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 2rem;
+      color: var(--text-primary);
+    }
+
+    .streaming-subtitle {
+      margin: 6px 0 0;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
     }
     
     .live-caption {
       font-size: 28px;
-      color: white;
+      color: var(--text-primary);
       text-align: center;
       line-height: 1.6;
       min-height: 120px;
       display: flex;
       align-items: center;
       justify-content: center;
-      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      max-width: 900px;
+      margin: 0 auto;
     }
     
     .partial-text {
@@ -46,26 +64,26 @@
     }
     
     .translation-item {
-      background: white;
+      background: var(--bg-white);
       padding: 20px;
       margin: 15px 0;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      border-left: 4px solid #667eea;
+      border-left: 4px solid var(--primary-color);
     }
     
     .translation-original {
       font-size: 18px;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 10px;
       font-weight: 500;
     }
     
     .translation-translated {
       font-size: 16px;
-      color: #666;
+      color: var(--text-secondary);
       padding-left: 20px;
-      border-left: 3px solid #e0e0e0;
+      border-left: 3px solid var(--border-light);
     }
 
     /* Chat bubble styles for multi-speaker conversations */
@@ -115,7 +133,7 @@
 
     .bubble-original {
       font-size: 16px;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 8px;
       font-weight: 500;
       line-height: 1.5;
@@ -123,7 +141,7 @@
 
     .bubble-translated {
       font-size: 14px;
-      color: #555;
+      color: var(--text-secondary);
       font-style: italic;
       opacity: 0.9;
       line-height: 1.4;
@@ -148,9 +166,11 @@
       display: flex;
       justify-content: space-around;
       margin: 20px 0;
-      padding: 15px;
-      background: #f5f5f5;
-      border-radius: 8px;
+      padding: 16px 12px;
+      background: var(--card-bg);
+      border-radius: 12px;
+      border: 1px solid var(--border-light);
+      box-shadow: var(--shadow-sm);
     }
     
     .stat-item {
@@ -160,20 +180,20 @@
     .stat-value {
       font-size: 24px;
       font-weight: bold;
-      color: #667eea;
+      color: var(--primary-color);
     }
     
     .stat-label {
       font-size: 12px;
-      color: #666;
+      color: var(--text-secondary);
       text-transform: uppercase;
     }
   </style>
 </head>
 <body class="page-simple">
-  <div style="text-align: center; margin: 20px 0;">
-    <h2 style="margin: 0;">Live Streaming Captions</h2>
-    <p style="opacity: 0.7; margin: 5px 0;">Real-time speech-to-text with high-quality final processing</p>
+  <div class="streaming-header">
+    <h2 class="streaming-title">Live Streaming Captions</h2>
+    <p class="streaming-subtitle">Real-time speech-to-text with high-quality final processing</p>
   </div>
   
   <div class="inline-buttons mb-lg">
@@ -183,7 +203,7 @@
     </button>
     <button id="btnStop" class="btn-secondary" disabled>Stop & Export</button>
     
-    <label style="margin-left: 20px;">Source:</label>
+    <label class="inline-label">Source:</label>
     <select id="sourceLang" class="inline">
       <option value="auto">Auto-detect</option>
       <option value="en">English</option>
@@ -202,7 +222,7 @@
       <option value="ko">한국어 (Korean)</option>
     </select>
 
-    <label style="margin-left: 12px;">Target:</label>
+    <label class="inline-label">Target:</label>
     <select id="targetLang" class="inline">
       <option value="en" selected>English</option>
       <option value="ar">العربية (Arabic)</option>

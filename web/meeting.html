@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real-time Meeting - Audio Translator</title>
+    <link rel="stylesheet" href="styles.css">
     <style>
         * {
             margin: 0;
@@ -12,33 +13,32 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: var(--font-sans);
+            background: var(--page-bg);
+            color: var(--text-primary);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             padding: 20px;
         }
 
         .container {
-            background: white;
+            background: var(--card-bg);
             border-radius: 16px;
             padding: 50px;
             max-width: 600px;
             width: 100%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow-lg);
         }
 
         h1 {
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 15px;
             font-size: 32px;
             text-align: center;
         }
 
         .subtitle {
-            color: #666;
+            color: var(--text-secondary);
             text-align: center;
             margin-bottom: 40px;
             font-size: 16px;
@@ -51,17 +51,18 @@
         }
 
         .option-card {
-            border: 2px solid #e0e0e0;
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 30px;
             text-align: center;
             transition: all 0.3s;
             cursor: pointer;
+            background: var(--bg-white);
         }
 
         .option-card:hover {
-            border-color: #667eea;
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2);
+            border-color: var(--primary-color);
+            box-shadow: var(--shadow-md);
             transform: translateY(-2px);
         }
 
@@ -73,12 +74,12 @@
         .option-title {
             font-size: 20px;
             font-weight: 600;
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 10px;
         }
 
         .option-desc {
-            color: #666;
+            color: var(--text-secondary);
             font-size: 14px;
             margin-bottom: 20px;
         }
@@ -86,7 +87,7 @@
         .btn-primary {
             width: 100%;
             padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--primary-color);
             color: white;
             border: none;
             border-radius: 8px;
@@ -98,6 +99,7 @@
 
         .btn-primary:hover {
             transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
 
         .btn-primary:active {
@@ -106,7 +108,7 @@
 
         .divider {
             text-align: center;
-            color: #999;
+            color: var(--text-tertiary);
             margin: 30px 0;
             position: relative;
         }
@@ -118,7 +120,7 @@
             top: 50%;
             width: 40%;
             height: 1px;
-            background: #e0e0e0;
+            background: var(--border-light);
         }
 
         .divider::before {
@@ -130,13 +132,14 @@
         }
 
         .join-section {
-            background: #f8f9fa;
+            background: var(--bg-light);
             padding: 25px;
             border-radius: 12px;
+            border: 1px solid var(--border-light);
         }
 
         .join-section h3 {
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 15px;
             font-size: 18px;
         }
@@ -150,14 +153,16 @@
         input {
             flex: 1;
             padding: 12px 15px;
-            border: 2px solid #e0e0e0;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             font-size: 16px;
+            background: var(--bg-white);
+            color: var(--text-primary);
         }
 
         input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: var(--primary-color);
         }
 
         .back-link {
@@ -166,7 +171,7 @@
         }
 
         .back-link a {
-            color: #667eea;
+            color: var(--primary-color);
             text-decoration: none;
             font-size: 14px;
         }
@@ -197,31 +202,32 @@
         }
 
         .error-message {
-            background: #f8d7da;
-            color: #721c24;
+            background: rgba(239, 68, 68, 0.15);
+            color: #b91c1c;
             padding: 12px;
             border-radius: 8px;
             margin-top: 15px;
         }
 
         .success-message {
-            background: #d4edda;
-            color: #155724;
+            background: rgba(34, 197, 94, 0.2);
+            color: #166534;
             padding: 12px;
             border-radius: 8px;
             margin-top: 15px;
         }
 
         .room-code-display {
-            background: #e7f3ff;
+            background: var(--bg-light);
             padding: 20px;
             border-radius: 8px;
             margin-top: 20px;
             text-align: center;
+            border: 1px solid var(--border-light);
         }
 
         .room-code-display .label {
-            color: #666;
+            color: var(--text-secondary);
             font-size: 14px;
             margin-bottom: 10px;
         }
@@ -229,34 +235,45 @@
         .room-code-display .code {
             font-size: 32px;
             font-weight: 700;
-            color: #667eea;
+            color: var(--primary-color);
             letter-spacing: 3px;
         }
 
         .room-code-display .copy-btn {
             margin-top: 15px;
             padding: 8px 20px;
-            background: white;
-            border: 2px solid #667eea;
-            color: #667eea;
+            background: var(--bg-white);
+            border: 1px solid var(--primary-color);
+            color: var(--primary-color);
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
         }
 
         .room-code-display .copy-btn:hover {
-            background: #667eea;
+            background: var(--primary-color);
             color: white;
+        }
+
+        .mode-selection-title {
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
+        .join-hint {
+            color: var(--text-secondary);
+            font-size: 13px;
         }
     </style>
 </head>
-<body>
-    <div class="container">
+<body class="page-simple">
+    <div class="centered-shell">
+        <div class="container">
         <h1>Real-time Meetings</h1>
         <p class="subtitle">Speak in any language, understand in yours</p>
 
         <div class="mode-selection" id="modeSelection">
-            <h3 style="margin-bottom: 20px; color: #333;">Choose Meeting Mode</h3>
+            <h3 class="mode-selection-title">Choose Meeting Mode</h3>
             <div class="option-container">
                 <div class="option-card" onclick="selectMode('individual')">
                     <div class="option-icon">📱</div>
@@ -284,13 +301,14 @@
                     Join
                 </button>
             </div>
-            <p style="color: #666; font-size: 13px;">Enter the meeting code shared by the host</p>
+            <p class="join-hint">Enter the meeting code shared by the host</p>
         </div>
 
         <div id="messageContainer"></div>
 
         <div class="back-link">
             <a href="index.html">← Back to Home</a>
+        </div>
         </div>
     </div>
 
@@ -381,5 +399,6 @@
             }
         });
     </script>
+    <script src="navbar.js"></script>
 </body>
 </html>

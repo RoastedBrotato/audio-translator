@@ -15,6 +15,9 @@ function createNavbar() {
         <a href="index.html" class="${currentPath === 'index.html' ? 'active' : ''}">
           🏠 Home
         </a>
+        <a href="meeting.html" class="${currentPath === 'meeting.html' ? 'active' : ''}">
+          👥 Meetings
+        </a>
         <a href="streaming.html" class="${currentPath === 'streaming.html' ? 'active' : ''}">
           🎙️ Live Streaming
         </a>
@@ -24,10 +27,11 @@ function createNavbar() {
         <a href="video.html" class="${currentPath === 'video.html' ? 'active' : ''}">
           🎬 Video Upload
         </a>
-        <a href="debug.html" class="${currentPath === 'debug.html' ? 'active' : ''}">
-          🔧 Debug
-        </a>
       </div>
+      <button class="theme-toggle" type="button" aria-label="Toggle theme">
+        <span class="theme-toggle-icon" aria-hidden="true">🌙</span>
+        <span class="theme-toggle-label">Dark</span>
+      </button>
     </div>
   `;
 
@@ -44,112 +48,39 @@ function createNavbar() {
   document.body.appendChild(navbar);
   document.body.appendChild(contentWrapper);
 
-  // Add styles
-  addNavbarStyles();
+  setupThemeToggle();
 }
 
-function addNavbarStyles() {
-  if (document.getElementById('navbar-styles')) return;
+function setupThemeToggle() {
+  const toggle = document.querySelector('.theme-toggle');
+  if (!toggle) return;
 
-  const style = document.createElement('style');
-  style.id = 'navbar-styles';
-  style.textContent = `
-    /* Remove default body margins */
-    body {
-      margin: 0 !important;
-      padding: 0 !important;
-    }
+  const root = document.documentElement;
+  const storedTheme = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const initialTheme = storedTheme || (prefersDark ? 'dark' : 'light');
+  root.setAttribute('data-theme', initialTheme);
+  updateThemeToggle(toggle, initialTheme);
 
-    /* Add padding to page content wrapper */
-    .page-content-wrapper {
-      padding: 0 40px;
-      max-width: 1600px;
-      margin: 0 auto;
-    }
+  toggle.addEventListener('click', () => {
+    const current = root.getAttribute('data-theme') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    updateThemeToggle(toggle, next);
+  });
+}
 
-    /* Full-width navbar */
-    .unified-navbar {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      position: sticky;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 1000;
-      width: 100%;
-      margin: 0;
-      padding: 0;
-    }
-
-    .navbar-container {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 15px 40px;
-      margin: 0;
-      width: 100%;
-      box-sizing: border-box;
-    }
-
-    .navbar-brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: white;
-      font-weight: bold;
-      font-size: 1.2rem;
-    }
-
-    .navbar-logo {
-      font-size: 1.5rem;
-    }
-
-    .navbar-links {
-      display: flex;
-      gap: 5px;
-    }
-
-    .navbar-links a {
-      color: white;
-      text-decoration: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      transition: all 0.2s ease;
-      font-size: 0.95rem;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .navbar-links a:hover {
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    .navbar-links a.active {
-      background: rgba(255, 255, 255, 0.3);
-      font-weight: 600;
-    }
-
-    /* Mobile responsive */
-    @media (max-width: 768px) {
-      .navbar-container {
-        flex-direction: column;
-        gap: 15px;
-      }
-
-      .navbar-links {
-        flex-wrap: wrap;
-        justify-content: center;
-      }
-
-      .navbar-links a {
-        font-size: 0.85rem;
-        padding: 6px 12px;
-      }
-    }
-  `;
-
-  document.head.appendChild(style);
+function updateThemeToggle(toggle, theme) {
+  const icon = toggle.querySelector('.theme-toggle-icon');
+  const label = toggle.querySelector('.theme-toggle-label');
+  if (theme === 'dark') {
+    icon.textContent = '☀️';
+    label.textContent = 'Light';
+  } else {
+    icon.textContent = '🌙';
+    label.textContent = 'Dark';
+  }
 }
 
 // Auto-initialize when DOM is ready

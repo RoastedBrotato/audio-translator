@@ -7,25 +7,25 @@
   <link rel="stylesheet" href="styles.css">
   <style>
     .upload-area {
-      border: 2px dashed #667eea;
+      border: 2px dashed var(--primary-color);
       border-radius: 12px;
       padding: 60px 40px;
       text-align: center;
       cursor: pointer;
       transition: all 0.3s ease;
-      background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+      background: var(--bg-gradient);
       margin: 30px 0;
     }
 
     .upload-area:hover {
-      border-color: #764ba2;
-      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      border-color: var(--secondary-color);
+      background: var(--bg-hover);
       transform: translateY(-2px);
     }
 
     .upload-area.dragging {
-      border-color: #764ba2;
-      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+      border-color: var(--secondary-color);
+      background: var(--bg-hover);
       transform: scale(1.02);
     }
 
@@ -36,13 +36,13 @@
 
     .upload-text {
       font-size: 1.3rem;
-      color: #667eea;
+      color: var(--primary-color);
       font-weight: 600;
       margin-bottom: 10px;
     }
 
     .upload-hint {
-      color: #999;
+      color: var(--text-tertiary);
       font-size: 0.9rem;
     }
 
@@ -51,11 +51,11 @@
     }
 
     .file-info {
-      background: white;
+      background: var(--bg-white);
       padding: 20px;
       border-radius: 8px;
       margin: 20px 0;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: var(--shadow-sm);
       display: none;
     }
 
@@ -65,13 +65,13 @@
 
     .file-name {
       font-weight: 600;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 5px;
       font-size: 1.1rem;
     }
 
     .file-size {
-      color: #666;
+      color: var(--text-secondary);
       font-size: 0.9rem;
     }
 
@@ -82,26 +82,28 @@
     .language-selector label {
       font-weight: 600;
       margin-right: 10px;
-      color: #555;
+      color: var(--text-secondary);
     }
 
     .language-selector select {
       padding: 8px 12px;
-      border: 2px solid #ddd;
+      border: 1px solid var(--border-color);
       border-radius: 6px;
       font-size: 1rem;
       min-width: 180px;
       cursor: pointer;
       transition: border-color 0.2s;
+      background: var(--bg-white);
+      color: var(--text-primary);
     }
 
     .language-selector select:hover {
-      border-color: #667eea;
+      border-color: var(--primary-color);
     }
 
     .language-selector select:focus {
       outline: none;
-      border-color: #667eea;
+      border-color: var(--primary-color);
     }
 
     .button-group {
@@ -121,13 +123,13 @@
     }
 
     .upload-btn {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: var(--primary-color);
       color: white;
     }
 
     .upload-btn:hover:not(:disabled) {
       transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      box-shadow: var(--shadow-md);
     }
 
     .upload-btn:disabled {
@@ -136,22 +138,22 @@
     }
 
     .clear-btn {
-      background: white;
-      color: #666;
-      border: 2px solid #ddd;
+      background: var(--bg-white);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
     }
 
     .clear-btn:hover {
-      border-color: #667eea;
-      color: #667eea;
+      border-color: var(--primary-color);
+      color: var(--primary-color);
     }
 
     .progress-container {
-      background: white;
+      background: var(--bg-white);
       padding: 30px;
       border-radius: 12px;
       margin: 20px 0;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      box-shadow: var(--shadow-md);
       display: none;
     }
 
@@ -162,7 +164,7 @@
     .progress-bar {
       width: 100%;
       height: 30px;
-      background: #e0e0e0;
+      background: var(--border-light);
       border-radius: 15px;
       overflow: hidden;
       margin: 15px 0;
@@ -170,7 +172,7 @@
 
     .progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
       width: 0%;
       transition: width 0.3s ease;
       display: flex;
@@ -184,18 +186,18 @@
       text-align: center;
       font-size: 1.2rem;
       font-weight: 600;
-      color: #667eea;
+      color: var(--primary-color);
       margin-bottom: 10px;
     }
 
     .progress-text {
       text-align: center;
-      color: #666;
+      color: var(--text-secondary);
       font-size: 0.95rem;
     }
 
     .results {
-      background: white;
+      background: var(--bg-white);
       padding: 30px;
       border-radius: 12px;
       margin: 20px 0;
@@ -211,14 +213,14 @@
     .result-section {
       margin: 20px 0;
       padding: 20px;
-      background: #f9f9f9;
+      background: var(--bg-light);
       border-radius: 8px;
-      border-left: 4px solid #667eea;
+      border-left: 4px solid var(--primary-color);
     }
 
     .result-title {
       font-weight: 600;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 10px;
       font-size: 1.1rem;
       display: flex;
@@ -227,14 +229,14 @@
     }
 
     .result-content {
-      color: #555;
+      color: var(--text-secondary);
       line-height: 1.6;
       white-space: pre-wrap;
       unicode-bidi: plaintext;
     }
 
     .download-btn {
-      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+      background: var(--success-gradient);
       color: white;
       padding: 12px 30px;
       font-size: 1rem;
@@ -249,16 +251,16 @@
 
     .download-btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+      box-shadow: var(--shadow-md);
     }
 
     .error-message {
-      background: #ffebee;
-      color: #c62828;
+      background: rgba(239, 68, 68, 0.15);
+      color: #b91c1c;
       padding: 15px 20px;
       border-radius: 8px;
       margin: 15px 0;
-      border-left: 4px solid #c62828;
+      border-left: 4px solid #b91c1c;
       display: none;
     }
 
@@ -313,7 +315,7 @@
 
     .bubble-original {
       font-size: 16px;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 8px;
       font-weight: 500;
       line-height: 1.5;
@@ -321,7 +323,7 @@
 
     .bubble-translated {
       font-size: 14px;
-      color: #555;
+      color: var(--text-secondary);
       font-style: italic;
       opacity: 0.9;
       line-height: 1.4;
@@ -391,6 +393,13 @@
     <label>
       <input type="checkbox" id="enableDiarization" style="margin-right: 8px;">
       👥 Identify different speakers (slower, for conversations)
+    </label>
+  </div>
+
+  <div class="language-selector">
+    <label>
+      <input type="checkbox" id="enhanceAudio" style="margin-right: 8px;">
+      ✨ Enhance noisy audio (denoise and focus on speech)
     </label>
   </div>
 

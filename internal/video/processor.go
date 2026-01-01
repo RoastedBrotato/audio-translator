@@ -245,6 +245,53 @@ func (p *Processor) ConvertAudioToWAV(audioPath string) (*ExtractAudioResult, er
 	}, nil
 }
 
+// ConvertAudioToWAVWithEnhancement converts audio to WAV and optionally applies noise reduction.
+func (p *Processor) ConvertAudioToWAVWithEnhancement(audioPath string, enhance bool) (*ExtractAudioResult, error) {
+	// Create temp file for converted audio
+	tempWAV := filepath.Join(p.TempDir, fmt.Sprintf("converted_%s.wav", filepath.Base(audioPath)))
+	defer os.Remove(tempWAV)
+
+	args := []string{
+		"-i", audioPath,
+		"-acodec", "pcm_s16le", // 16-bit PCM
+		"-ar", "16000",         // 16kHz sample rate (Whisper optimal)
+		"-ac", "1",             // Mono
+	}
+	if enhance {
+		// Light denoise + band-pass to emphasize speech
+		args = append(args, "-af", "highpass=f=80,lowpass=f=8000,afftdn=nr=12")
+	}
+	args = append(args, "-y", tempWAV)
+
+	cmd := exec.Command("ffmpeg", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg error: %w, stderr: %s", err, stderr.String())
+	}
+
+	// Read the converted audio file
+	audioData, err := os.ReadFile(tempWAV)
+	if err != nil {
+		return nil, fmt.Errorf("read audio file: %w", err)
+	}
+
+	// Get duration using ffprobe
+	duration, err := p.getAudioDuration(audioPath)
+	if err != nil {
+		// Non-critical, set to 0 if we can't get it
+		duration = 0
+	}
+
+	return &ExtractAudioResult{
+		AudioData:  audioData,
+		SampleRate: 16000,
+		Channels:   1,
+		Duration:   duration,
+	}, nil
+}
+
 // CheckFFmpegInstalled verifies that ffmpeg and ffprobe are available
 func CheckFFmpegInstalled() error {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {

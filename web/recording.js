@@ -19,6 +19,7 @@ const errorMessage = document.getElementById('errorMessage');
 const downloadTxtBtn = document.getElementById('downloadTxtBtn');
 const downloadJsonBtn = document.getElementById('downloadJsonBtn');
 const enableDiarization = document.getElementById('enableDiarization');
+const enhanceAudio = document.getElementById('enhanceAudio');
 
 let selectedFile = null;
 let progressWS = null;
@@ -26,10 +27,10 @@ let resultData = null;
 
 // Speaker color mapping (same as streaming)
 const speakerColors = {
-  'SPEAKER_00': { bg: '#e3f2fd', border: '#2196f3', align: 'left', name: 'Person 1' },
-  'SPEAKER_01': { bg: '#f3e5f5', border: '#9c27b0', align: 'right', name: 'Person 2' },
-  'SPEAKER_02': { bg: '#e8f5e9', border: '#4caf50', align: 'left', name: 'Person 3' },
-  'SPEAKER_03': { bg: '#fff3e0', border: '#ff9800', align: 'right', name: 'Person 4' }
+  'SPEAKER_00': { bg: 'var(--speaker-0-bg)', border: 'var(--speaker-0-border)', align: 'left', name: 'Person 1' },
+  'SPEAKER_01': { bg: 'var(--speaker-1-bg)', border: 'var(--speaker-1-border)', align: 'right', name: 'Person 2' },
+  'SPEAKER_02': { bg: 'var(--speaker-2-bg)', border: 'var(--speaker-2-border)', align: 'left', name: 'Person 3' },
+  'SPEAKER_03': { bg: 'var(--speaker-3-bg)', border: 'var(--speaker-3-border)', align: 'right', name: 'Person 4' }
 };
 
 // Get speaker style
@@ -186,6 +187,7 @@ uploadBtn.addEventListener('click', async () => {
         formData.append('sourceLang', sourceLang.value);
         formData.append('targetLang', targetLang.value);
         formData.append('enableDiarization', enableDiarization.checked ? 'true' : 'false');
+        formData.append('enhanceAudio', enhanceAudio.checked ? 'true' : 'false');
 
         // Upload audio and get session ID
         const response = await fetch('/upload-audio', {

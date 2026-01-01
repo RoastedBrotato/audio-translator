@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Join Meeting - Audio Translator</title>
+    <link rel="stylesheet" href="styles.css">
     <style>
         * {
             margin: 0;
@@ -12,38 +13,37 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: var(--font-sans);
+            background: var(--page-bg);
+            color: var(--text-primary);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             padding: 20px;
         }
 
         .join-container {
-            background: white;
+            background: var(--card-bg);
             border-radius: 12px;
             padding: 40px;
             max-width: 500px;
             width: 100%;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow-lg);
         }
 
         h1 {
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 10px;
             font-size: 28px;
         }
 
         .room-code {
-            background: #f0f4ff;
+            background: var(--bg-light);
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 30px;
             text-align: center;
             font-size: 18px;
-            color: #667eea;
+            color: var(--primary-color);
             font-weight: 600;
         }
 
@@ -54,28 +54,30 @@
         label {
             display: block;
             margin-bottom: 8px;
-            color: #555;
+            color: var(--text-secondary);
             font-weight: 500;
         }
 
         input, select {
             width: 100%;
             padding: 12px 15px;
-            border: 2px solid #e0e0e0;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             font-size: 16px;
             transition: border-color 0.3s;
+            background: var(--bg-white);
+            color: var(--text-primary);
         }
 
         input:focus, select:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: var(--primary-color);
         }
 
         small {
             display: block;
             margin-top: 5px;
-            color: #888;
+            color: var(--text-tertiary);
             font-size: 13px;
         }
 
@@ -89,17 +91,17 @@
         }
 
         .status-message.warning {
-            background: #fff3cd;
-            color: #856404;
+            background: rgba(245, 158, 11, 0.2);
+            color: #92400e;
         }
 
         .status-message.success {
-            background: #d4edda;
-            color: #155724;
+            background: rgba(34, 197, 94, 0.2);
+            color: #166534;
         }
 
         .info-message {
-            color: #666;
+            color: var(--text-secondary);
             font-size: 14px;
             margin-bottom: 20px;
             text-align: center;
@@ -108,7 +110,7 @@
         .btn-primary {
             width: 100%;
             padding: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--primary-color);
             color: white;
             border: none;
             border-radius: 8px;
@@ -120,7 +122,7 @@
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: var(--shadow-md);
         }
 
         .btn-primary:active {
@@ -134,8 +136,8 @@
         }
 
         .error-message {
-            background: #f8d7da;
-            color: #721c24;
+            background: rgba(239, 68, 68, 0.15);
+            color: #b91c1c;
             padding: 12px;
             border-radius: 8px;
             margin-top: 15px;
@@ -163,8 +165,9 @@
         }
     </style>
 </head>
-<body>
-    <div class="join-container">
+<body class="page-simple">
+    <div class="centered-shell">
+        <div class="join-container">
         <h1>Join Meeting</h1>
         <div id="roomCodeDisplay" class="room-code" style="display:none;">
             Room Code: <span id="currentRoomCode"></span>
@@ -212,6 +215,7 @@
         </form>
 
         <div id="errorMessage" class="error-message" style="display:none;"></div>
+        </div>
     </div>
 
     <script>
@@ -335,5 +339,6 @@
                 .catch(err => console.error('Failed to fetch meeting info:', err));
         }
     </script>
+    <script src="navbar.js"></script>
 </body>
 </html>

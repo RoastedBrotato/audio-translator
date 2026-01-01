@@ -316,6 +316,7 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 
 	// Check if user wants speaker diarization
 	enableDiarization := r.FormValue("enableDiarization") == "true"
+	enhanceAudio := r.FormValue("enhanceAudio") == "true"
 
 	// Send initial response with session ID immediately
 	w.Header().Set("Content-Type", "application/json")
@@ -355,11 +356,19 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 		}
 		outFile.Close()
 
-		tracker.Update("processing", 30, "Converting audio to WAV format...")
+		if enhanceAudio {
+			tracker.Update("processing", 30, "Cleaning up audio and converting to WAV...")
+		} else {
+			tracker.Update("processing", 30, "Converting audio to WAV format...")
+		}
 
 		// Convert audio to WAV format
 		log.Println("Converting audio to WAV...")
-		audioResult, err := processor.ConvertAudioToWAV(tempAudioPath)
+		audioResult, err := processor.ConvertAudioToWAVWithEnhancement(tempAudioPath, enhanceAudio)
+		if err != nil && enhanceAudio {
+			log.Printf("Audio enhancement failed, retrying without enhancement: %v", err)
+			audioResult, err = processor.ConvertAudioToWAVWithEnhancement(tempAudioPath, false)
+		}
 		if err != nil {
 			log.Printf("Error converting audio: %v", err)
 			tracker.Error("processing", "Failed to convert audio", err)

@@ -603,6 +603,7 @@ async def websocket_endpoint(websocket: WebSocket):
             print("🔄 Starting high-quality re-transcription of full audio...")
             try:
                 # Step 1: Transcribe with Whisper
+                condition_on_prev = transcriber.language is not None
                 result = whisper_model.transcribe(
                     full_audio,
                     language=transcriber.language,
@@ -610,7 +611,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     verbose=False,
                     temperature=0.0,
                     compression_ratio_threshold=2.4,
-                    condition_on_previous_text=True,
+                    condition_on_previous_text=condition_on_prev,
                     word_timestamps=True  # Get word-level timestamps for better segmentation
                 )
 
@@ -789,6 +790,7 @@ async def transcribe_with_diarization(request: Request):
         print(f"   Audio: {len(audio_array)} samples ({len(audio_array)/SAMPLE_RATE:.1f}s)")
 
         # Step 1: Transcribe with Whisper
+        condition_on_prev = language is not None
         result = whisper_model.transcribe(
             audio_array,
             language=language,
@@ -796,7 +798,7 @@ async def transcribe_with_diarization(request: Request):
             verbose=False,
             temperature=0.0,
             compression_ratio_threshold=2.4,
-            condition_on_previous_text=True,
+            condition_on_previous_text=condition_on_prev,
             word_timestamps=True
         )
 
