@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join Meeting - Audio Translator</title>
+    <link rel="stylesheet" href="../../assets/css/styles.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--page-bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .join-container {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow-lg);
+        }
+
+        h1 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .room-code {
+            background: var(--bg-light);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 18px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+            background: var(--bg-white);
+            color: var(--text-primary);
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        small {
+            display: block;
+            margin-top: 5px;
+            color: var(--text-tertiary);
+            font-size: 13px;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-message.warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #92400e;
+        }
+
+        .status-message.success {
+            background: rgba(34, 197, 94, 0.2);
+            color: #166534;
+        }
+
+        .info-message {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.15);
+            color: #b91c1c;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body class="page-simple">
+    <div class="centered-shell">
+        <div class="join-container">
+        <h1>Join Meeting</h1>
+        <div id="roomCodeDisplay" class="room-code" style="display:none;">
+            Room Code: <span id="currentRoomCode"></span>
+        </div>
+
+        <form id="joinForm">
+            <div class="form-group">
+                <label for="roomCode">Room Code</label>
+                <input type="text" id="roomCode" placeholder="Enter room code (e.g., ABC-123)" required>
+                <small>Enter the meeting room code you received</small>
+            </div>
+
+            <div class="form-group">
+                <label for="participantName">Your Name</label>
+                <input type="text" id="participantName" placeholder="Enter your name" required>
+            </div>
+
+            <div class="form-group">
+                <label for="targetLanguage">Your Language Preference</label>
+                <select id="targetLanguage" required>
+                    <option value="en">English</option>
+                    <option value="ar">Arabic (العربية)</option>
+                    <option value="ur">Urdu (اردو)</option>
+                    <option value="es">Spanish (Español)</option>
+                    <option value="fr">French (Français)</option>
+                    <option value="de">German (Deutsch)</option>
+                    <option value="zh">Chinese (中文)</option>
+                    <option value="ja">Japanese (日本語)</option>
+                    <option value="ko">Korean (한국어)</option>
+                    <option value="hi">Hindi (हिन्दी)</option>
+                </select>
+                <small>You'll see translations in this language</small>
+            </div>
+
+            <div id="micStatus" class="status-message warning">
+                <span id="micIcon">⚠️</span>
+                <span id="micText">Microphone access required</span>
+            </div>
+
+            <div id="participantCount" class="info-message"></div>
+
+            <button type="submit" id="joinButton" class="btn-primary">
+                Join Meeting
+            </button>
+        </form>
+
+        <div id="errorMessage" class="error-message" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check for room code in URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomCodeParam = urlParams.get('roomCode');
+
+        if (roomCodeParam) {
+            document.getElementById('roomCode').value = roomCodeParam;
+            document.getElementById('roomCodeDisplay').style.display = 'block';
+            document.getElementById('currentRoomCode').textContent = roomCodeParam;
+            // Hide the room code input field
+            document.getElementById('roomCode').parentElement.style.display = 'none';
+        }
+
+        // Request microphone permission on page load
+        async function checkMicrophonePermission() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop()); // Release immediately
+
+                document.getElementById('micStatus').className = 'status-message success';
+                document.getElementById('micIcon').textContent = '✓';
+                document.getElementById('micText').textContent = 'Microphone ready';
+            } catch (error) {
+                console.error('Microphone permission error:', error);
+                document.getElementById('micStatus').className = 'status-message warning';
+                document.getElementById('micIcon').textContent = '⚠️';
+                document.getElementById('micText').textContent = 'Please allow microphone access to join';
+            }
+        }
+
+        checkMicrophonePermission();
+
+        // Handle form submission
+        document.getElementById('joinForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const roomCode = document.getElementById('roomCode').value.trim();
+            const participantName = document.getElementById('participantName').value.trim();
+            const targetLanguage = document.getElementById('targetLanguage').value;
+            const joinButton = document.getElementById('joinButton');
+            const errorDiv = document.getElementById('errorMessage');
+
+            // Validate inputs
+            if (!roomCode || !participantName) {
+                showError('Please fill in all fields');
+                return;
+            }
+
+            // Check microphone permission
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop());
+            } catch (error) {
+                showError('Microphone access is required to join the meeting');
+                return;
+            }
+
+            // Disable button and show loading
+            joinButton.disabled = true;
+            joinButton.innerHTML = '<div class="loading"><span class="spinner"></span> Joining...</div>';
+            errorDiv.style.display = 'none';
+
+            try {
+                // Join meeting via API
+                const response = await fetch(`/api/meetings/${roomCode}/join`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        participantName: participantName,
+                        targetLanguage: targetLanguage
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to join meeting');
+                }
+
+                // Store session data
+                sessionStorage.setItem('meetingId', data.meetingId);
+                sessionStorage.setItem('participantId', data.participantId);
+                sessionStorage.setItem('participantName', participantName);
+                sessionStorage.setItem('targetLanguage', targetLanguage);
+                sessionStorage.setItem('roomCode', roomCode);
+
+                let hostRoomCode = sessionStorage.getItem('hostRoomCode');
+                if (!hostRoomCode || hostRoomCode !== roomCode) {
+                    const storedHostRoomCode = localStorage.getItem('hostRoomCode');
+                    const storedHostToken = localStorage.getItem('hostToken');
+                    if (storedHostRoomCode === roomCode && storedHostToken) {
+                        sessionStorage.setItem('hostToken', storedHostToken);
+                        sessionStorage.setItem('hostRoomCode', storedHostRoomCode);
+                    } else {
+                        sessionStorage.removeItem('hostToken');
+                        sessionStorage.removeItem('hostRoomCode');
+                    }
+                }
+
+                // Redirect to meeting room
+                window.location.href = `meeting-room.html`;
+
+            } catch (error) {
+                console.error('Join error:', error);
+                showError(error.message);
+                joinButton.disabled = false;
+                joinButton.textContent = 'Join Meeting';
+            }
+        });
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        // Fetch participant count if room code is provided
+        if (roomCodeParam) {
+            fetch(`/api/meetings/${roomCodeParam}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.participants) {
+                        const count = data.participants.length;
+                        document.getElementById('participantCount').textContent =
+                            count === 0 ? 'Be the first to join!' :
+                            count === 1 ? '1 participant in this meeting' :
+                            `${count} participants in this meeting`;
+                    }
+                })
+                .catch(err => console.error('Failed to fetch meeting info:', err));
+        }
+    </script>
+    <script src="../../components/navbar/navbar.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+/* ============================================
+   Debug/Log Components
+   ============================================ */
+
+#log {
+    border: 1px solid var(--border-color);
+    padding: var(--spacing-md);
+    height: 400px;
+    overflow-y: scroll;
+    background: var(--bg-gray);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    border-radius: var(--radius-sm);
+}
+
+.log-entry {
+    margin: 2px 0;
+    padding: 2px 0;
+}

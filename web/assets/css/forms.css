@@ -1,0 +1,67 @@
+/* ============================================
+   Form Elements
+   ============================================ */
+
+label {
+    display: inline-block;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+}
+
+select {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 1em;
+    background: var(--bg-white);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color var(--transition-normal);
+    font-family: inherit;
+}
+
+select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+select.inline {
+    width: auto;
+    padding: 6px var(--spacing-md);
+    margin: 0;
+    background: var(--bg-white);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.language-selector {
+    margin-bottom: var(--spacing-xl);
+}
+
+.language-selector label {
+    display: block;
+    margin-bottom: var(--spacing-sm);
+    color: var(--text-secondary);
+}
+
+.checkbox-container {
+    margin-bottom: var(--spacing-xl);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.checkbox-container input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.checkbox-container label {
+    margin: 0;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+}

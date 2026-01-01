@@ -1,0 +1,36 @@
+/* ============================================
+   Messages & Alerts
+   ============================================ */
+
+.error-message {
+    background: #fee;
+    border: 2px solid #fcc;
+    border-radius: var(--radius-md);
+    padding: 15px;
+    color: #c00;
+    margin-bottom: var(--spacing-xl);
+    display: none;
+}
+
+.error-message.show {
+    display: block;
+}
+
+.warning-message {
+    background: #fff3cd;
+    border: 2px solid #ffc107;
+    border-radius: var(--radius-md);
+    padding: 15px;
+    color: #856404;
+    margin-bottom: var(--spacing-xl);
+    font-size: 14px;
+}
+
+.info-message {
+    background: var(--bg-light);
+    border: 2px solid var(--primary-color);
+    border-radius: var(--radius-md);
+    padding: 15px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xl);
+}

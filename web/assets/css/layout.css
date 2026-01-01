@@ -1,0 +1,50 @@
+/* ============================================
+   Layout Components
+   ============================================ */
+
+.page-gradient {
+    background: var(--bg-gradient);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: var(--spacing-xl);
+}
+
+.page-simple {
+    background: var(--page-bg);
+    padding: var(--spacing-lg);
+    min-height: 100vh;
+}
+
+.container {
+    background: var(--bg-white);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    max-width: 800px;
+    width: 100%;
+    padding: var(--spacing-3xl);
+}
+
+.centered-shell {
+    min-height: calc(100vh - 140px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 0;
+}
+
+.row {
+    display: flex;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+
+.col {
+    flex: 1;
+    border: 1px solid var(--border-light);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-sm);
+    min-height: 240px;
+    background: var(--bg-white);
+}

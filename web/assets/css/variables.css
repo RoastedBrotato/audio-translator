@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+/* ============================================
+   Realtime Caption Translator - Design Tokens
+   ============================================ */
+
+:root {
+    /* Typography */
+    --font-sans: "Space Grotesk", "Segoe UI", sans-serif;
+    --font-display: "Fraunces", "Times New Roman", serif;
+
+    /* Color Palette */
+    --primary-color: #0f766e;
+    --primary-dark: #115e59;
+    --secondary-color: #f97316;
+    --secondary-dark: #ea580c;
+    --accent-1: #14b8a6;
+    --accent-2: #fbbf24;
+    --bg-gradient: linear-gradient(135deg, rgba(15, 118, 110, 0.08) 0%, rgba(249, 115, 22, 0.08) 100%);
+    --success-gradient: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+
+    /* Neutral Colors */
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #94a3b8;
+    --border-color: rgba(15, 23, 42, 0.12);
+    --border-light: rgba(15, 23, 42, 0.08);
+
+    /* Background Colors */
+    --bg-white: #ffffff;
+    --bg-light: #f8fafc;
+    --bg-gray: #f1f5f9;
+    --bg-hover: #e2e8f0;
+    --page-bg: #f8fafc;
+    --card-bg: rgba(255, 255, 255, 0.88);
+    --card-border: rgba(15, 23, 42, 0.08);
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(15, 23, 42, 0.12);
+    --on-primary: #f8fafc;
+
+    --speaker-0-bg: rgba(20, 184, 166, 0.12);
+    --speaker-0-border: #0f766e;
+    --speaker-1-bg: rgba(249, 115, 22, 0.12);
+    --speaker-1-border: #ea580c;
+    --speaker-2-bg: rgba(56, 189, 248, 0.12);
+    --speaker-2-border: #0284c7;
+    --speaker-3-bg: rgba(251, 191, 36, 0.12);
+    --speaker-3-border: #d97706;
+
+    /* Spacing */
+    --spacing-xs: 5px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 20px;
+    --spacing-2xl: 30px;
+    --spacing-3xl: 40px;
+
+    /* Border Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+
+    /* Shadows */
+    --shadow-sm: 0 4px 10px rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.12);
+    --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.16);
+    --shadow-xl: 0 24px 60px rgba(15, 23, 42, 0.2);
+
+    /* Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+}
+
+[data-theme="dark"] {
+    --primary-color: #2dd4bf;
+    --primary-dark: #0f766e;
+    --secondary-color: #fbbf24;
+    --secondary-dark: #f59e0b;
+    --accent-1: #38bdf8;
+    --accent-2: #f97316;
+    --bg-gradient: linear-gradient(135deg, rgba(45, 212, 191, 0.08) 0%, rgba(249, 115, 22, 0.08) 100%);
+
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    --border-color: rgba(148, 163, 184, 0.24);
+    --border-light: rgba(148, 163, 184, 0.12);
+
+    --bg-white: #0f172a;
+    --bg-light: #111827;
+    --bg-gray: #0b1120;
+    --bg-hover: rgba(148, 163, 184, 0.12);
+    --page-bg: #0b1120;
+    --card-bg: rgba(15, 23, 42, 0.85);
+    --card-border: rgba(148, 163, 184, 0.2);
+    --glass-bg: rgba(15, 23, 42, 0.7);
+    --glass-border: rgba(148, 163, 184, 0.24);
+    --on-primary: #0f172a;
+
+    --speaker-0-bg: rgba(45, 212, 191, 0.18);
+    --speaker-0-border: #2dd4bf;
+    --speaker-1-bg: rgba(251, 191, 36, 0.16);
+    --speaker-1-border: #fbbf24;
+    --speaker-2-bg: rgba(56, 189, 248, 0.18);
+    --speaker-2-border: #38bdf8;
+    --speaker-3-bg: rgba(249, 115, 22, 0.2);
+    --speaker-3-border: #f97316;
+
+    --shadow-sm: 0 6px 16px rgba(2, 6, 23, 0.5);
+    --shadow-md: 0 12px 28px rgba(2, 6, 23, 0.55);
+    --shadow-lg: 0 20px 44px rgba(2, 6, 23, 0.6);
+    --shadow-xl: 0 28px 64px rgba(2, 6, 23, 0.65);
+}

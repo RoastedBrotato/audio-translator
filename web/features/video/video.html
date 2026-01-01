@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Translation</title>
+    <link rel="stylesheet" href="../../assets/css/styles.css">
+</head>
+<body class="page-simple">
+    <div style="text-align: center; margin: 20px 0;">
+        <h2 style="margin: 0;">Video Translation</h2>
+        <p style="opacity: 0.7; margin: 5px 0;">Upload a video to extract audio, transcribe, and translate</p>
+    </div>
+        
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📹</div>
+            <div class="upload-text">Click to upload or drag and drop</div>
+            <div class="upload-hint">MP4, AVI, MOV, MKV (max 500MB)</div>
+            <input type="file" id="videoFile" accept="video/*">
+        </div>
+        
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+        
+        <div class="language-selector">
+            <label for="sourceLang">Source Language:</label>
+            <select id="sourceLang">
+                <option value="auto">🔍 Auto-detect</option>
+                <option value="en">English</option>
+                <option value="ar">العربية (Arabic)</option>
+                <option value="ur">اردو (Urdu)</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="ml">മലയാളം (Malayalam)</option>
+                <option value="te">తెలుగు (Telugu)</option>
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="bn">বাংলা (Bengali)</option>
+                <option value="fr">Français (French)</option>
+                <option value="es">Español (Spanish)</option>
+                <option value="de">Deutsch (German)</option>
+                <option value="zh">中文 (Chinese)</option>
+                <option value="ja">日本語 (Japanese)</option>
+                <option value="ko">한국어 (Korean)</option>
+            </select>
+        </div>
+
+        <div class="language-selector">
+            <label for="targetLang">Translate To:</label>
+            <select id="targetLang">
+                <option value="en">English</option>
+                <option value="ar">العربية (Arabic)</option>
+                <option value="ur">اردو (Urdu)</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="ml">മലയാളം (Malayalam)</option>
+                <option value="te">తెలుగు (Telugu)</option>
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="bn">বাংলা (Bengali)</option>
+                <option value="fr">Français (French)</option>
+                <option value="es">Español (Spanish)</option>
+                <option value="de">Deutsch (German)</option>
+                <option value="zh">中文 (Chinese)</option>
+                <option value="ja">日本語 (Japanese)</option>
+                <option value="ko">한국어 (Korean)</option>
+            </select>
+        </div>
+        
+        <div class="checkbox-container">
+            <input type="checkbox" id="generateTTS" checked>
+            <label for="generateTTS">🔊 Generate translated audio and replace in video</label>
+        </div>
+        
+        <div class="checkbox-container">
+            <input type="checkbox" id="cloneVoice" checked>
+            <label for="cloneVoice">🎭 Clone original voice (keeps speaker's voice characteristics)</label>
+        </div>
+
+        <div class="warning-message" id="voiceCloneWarning" style="display: none;">
+            ⚠️ Voice cloning is not supported for this language. Standard TTS voice will be used instead.
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+        
+        <div class="button-group">
+            <button class="btn-primary" id="uploadBtn" disabled>Process Video</button>
+            <button class="btn-secondary" id="clearBtn">Clear</button>
+        </div>
+        
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-stage" id="progressStage"></div>
+            <div class="progress-text" id="progressText">Processing...</div>
+        </div>
+        
+        <div class="results" id="results">
+            <div class="result-section">
+                <div class="result-title">
+                    <span>📝</span> Original Transcription
+                </div>
+                <div class="result-content" id="transcription"></div>
+            </div>
+            
+            <div class="result-section">
+                <div class="result-title">
+                    <span>🌍</span> Translation
+                </div>
+                <div class="result-content" id="translation"></div>
+            </div>
+            
+            <div class="result-section">
+                <div class="result-title">
+                    <span>⏱️</span> Video Duration
+                </div>
+                <div class="result-content" id="duration"></div>
+            </div>
+            
+            <button class="btn-success" id="downloadBtn">
+                📥 Download Video with Translated Audio
+            </button>
+        </div>
+
+    <script src="../../components/navbar/navbar.js"></script>
+    <script type="module" src="video.js"></script>
+</body>
+</html>

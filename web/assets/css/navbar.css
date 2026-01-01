@@ -1,0 +1,98 @@
+/* ============================================
+   Unified Navbar
+   ============================================ */
+
+.page-content-wrapper {
+    padding: 0 48px 80px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.unified-navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background: color-mix(in srgb, var(--bg-white) 92%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.navbar-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 18px 48px;
+}
+
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: 0.2px;
+}
+
+.navbar-logo {
+    font-size: 1.4rem;
+}
+
+.navbar-title {
+    font-family: var(--font-display);
+}
+
+.navbar-links {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.navbar-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 8px 14px;
+    border-radius: 999px;
+    transition: background var(--transition-fast), color var(--transition-fast);
+    font-size: 0.95rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+}
+
+.navbar-links a:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.navbar-links a.active {
+    border-color: var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.theme-toggle {
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 6px 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+    font-family: var(--font-sans);
+}
+
+.theme-toggle:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.theme-toggle:active {
+    transform: translateY(0);
+}

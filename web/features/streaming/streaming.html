@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Live Streaming Captions</title>
+  <link rel="stylesheet" href="../../assets/css/styles.css">
+  <style>
+    .caption-container {
+      padding: 28px 0;
+      min-height: 200px;
+      margin: 24px 0;
+      border-top: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .streaming-header {
+      text-align: center;
+      margin: 28px 0 20px;
+    }
+
+    .streaming-title {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 2rem;
+      color: var(--text-primary);
+    }
+
+    .streaming-subtitle {
+      margin: 6px 0 0;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+    
+    .live-caption {
+      font-size: 28px;
+      color: var(--text-primary);
+      text-align: center;
+      line-height: 1.6;
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    .partial-text {
+      opacity: 0.7;
+      font-style: italic;
+    }
+    
+    .final-text {
+      opacity: 1;
+      font-weight: 500;
+    }
+    
+    .translations-container {
+      margin-top: 30px;
+      max-height: 400px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .translation-item {
+      background: var(--bg-white);
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-left: 4px solid var(--primary-color);
+    }
+    
+    .translation-original {
+      font-size: 18px;
+      color: var(--text-primary);
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+    
+    .translation-translated {
+      font-size: 16px;
+      color: var(--text-secondary);
+      padding-left: 20px;
+      border-left: 3px solid var(--border-light);
+    }
+
+    /* Chat bubble styles for multi-speaker conversations */
+    .translation-bubble {
+      margin: 20px 0;
+      display: flex;
+      flex-direction: column;
+      max-width: 75%;
+    }
+
+    .translation-bubble.translation-left {
+      align-self: flex-start;
+    }
+
+    .translation-bubble.translation-right {
+      align-self: flex-end;
+    }
+
+    .speaker-label {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .speaker-label.speaker-uncertain {
+      opacity: 0.7;
+      border-bottom: 1px dashed rgba(15, 23, 42, 0.4);
+      display: inline-block;
+      padding-bottom: 2px;
+    }
+
+    .speaker-label.speaker-overlap {
+      font-style: italic;
+    }
+
+    .translation-left .speaker-label {
+      text-align: left;
+      margin-left: 10px;
+    }
+
+    .translation-right .speaker-label {
+      text-align: right;
+      margin-right: 10px;
+    }
+
+    .bubble-content {
+      padding: 15px 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .translation-right .bubble-content {
+      border-left: none !important;
+      border-right: 4px solid;
+    }
+
+    .bubble-original {
+      font-size: 16px;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .bubble-translated {
+      font-size: 14px;
+      color: var(--text-secondary);
+      font-style: italic;
+      opacity: 0.9;
+      line-height: 1.4;
+    }
+
+    .recording-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: red;
+      animation: pulse 1.5s infinite;
+      margin-right: 8px;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    
+    .stats {
+      display: flex;
+      justify-content: space-around;
+      margin: 20px 0;
+      padding: 16px 12px;
+      background: var(--card-bg);
+      border-radius: 12px;
+      border: 1px solid var(--border-light);
+      box-shadow: var(--shadow-sm);
+    }
+    
+    .stat-item {
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--primary-color);
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body class="page-simple">
+  <div class="streaming-header">
+    <h2 class="streaming-title">Live Streaming Captions</h2>
+    <p class="streaming-subtitle">Real-time speech-to-text with high-quality final processing</p>
+  </div>
+  
+  <div class="inline-buttons mb-lg">
+    <button id="btnStart" class="btn-primary">
+      <span id="recordingIndicator"></span>
+      Start Streaming
+    </button>
+    <button id="btnStop" class="btn-secondary" disabled>Stop & Export</button>
+    
+    <label class="inline-label">Source:</label>
+    <select id="sourceLang" class="inline">
+      <option value="auto">Auto-detect</option>
+      <option value="en">English</option>
+      <option value="ar">العربية (Arabic)</option>
+      <option value="ur" selected>اردو (Urdu)</option>
+      <option value="hi">हिन्दी (Hindi)</option>
+      <option value="ml">മലയാളം (Malayalam)</option>
+      <option value="te">తెలుగు (Telugu)</option>
+      <option value="ta">தமிழ் (Tamil)</option>
+      <option value="bn">বাংলা (Bengali)</option>
+      <option value="fr">Français (French)</option>
+      <option value="es">Español (Spanish)</option>
+      <option value="de">Deutsch (German)</option>
+      <option value="zh">中文 (Chinese)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="ko">한국어 (Korean)</option>
+    </select>
+
+    <label class="inline-label">Target:</label>
+    <select id="targetLang" class="inline">
+      <option value="en" selected>English</option>
+      <option value="ar">العربية (Arabic)</option>
+      <option value="ur">اردو (Urdu)</option>
+      <option value="hi">हिन्दी (Hindi)</option>
+      <option value="ml">മലയാളം (Malayalam)</option>
+      <option value="te">తెలుగు (Telugu)</option>
+      <option value="ta">தமிழ் (Tamil)</option>
+      <option value="bn">বাংলা (Bengali)</option>
+      <option value="fr">Français (French)</option>
+      <option value="es">Español (Spanish)</option>
+      <option value="de">Deutsch (German)</option>
+      <option value="zh">中文 (Chinese)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="ko">한국어 (Korean)</option>
+    </select>
+  </div>
+  
+  <div class="stats">
+    <div class="stat-item">
+      <div class="stat-value" id="segmentCount">0</div>
+      <div class="stat-label">Segments</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="translationCount">0</div>
+      <div class="stat-label">Translations</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="duration">0:00</div>
+      <div class="stat-label">Duration</div>
+    </div>
+  </div>
+  
+  <div class="caption-container">
+    <div class="live-caption" id="liveCaption">
+      <span style="opacity: 0.5;">Speak to see live captions...</span>
+    </div>
+  </div>
+  
+  <div class="translations-container" id="translationsContainer">
+    <!-- Translations will appear here -->
+  </div>
+  
+  <!-- Download Section (hidden until final processing complete) -->
+  <div id="downloadSection" style="display: none; margin-top: 20px;">
+    <h3>📥 Download Final Transcript</h3>
+    <p style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 1rem;">
+      High-quality transcription with accurate translations
+    </p>
+    <button onclick="downloadTranscript()" class="btn-primary">📄 Download Transcript</button>
+    <button onclick="downloadJSON()" class="btn-secondary">📋 Download JSON</button>
+  </div>
+  
+  <script src="../../components/navbar/navbar.js"></script>
+  <script type="module" src="streaming.js"></script>
+</body>
+</html>

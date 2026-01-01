@@ -1,0 +1,28 @@
+/* ============================================
+   Navigation & Links
+   ============================================ */
+
+.nav-links {
+    text-align: center;
+    margin-top: var(--spacing-2xl);
+    padding-top: var(--spacing-xl);
+    border-top: 2px solid #f0f0f0;
+}
+
+.nav-links a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-normal);
+    font-size: 1.05em;
+}
+
+.nav-links a:hover {
+    color: var(--primary-dark);
+}
+
+.divider-link {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid var(--border-light);
+}

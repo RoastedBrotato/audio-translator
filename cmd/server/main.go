@@ -1260,7 +1260,43 @@ func main() {
 	// Create TTS client
 	ttsClient := tts.New("http://127.0.0.1:8005")
 
+	// Static file server
 	http.Handle("/", http.FileServer(http.Dir("./web")))
+
+	// Redirects for new file structure
+	http.HandleFunc("/meeting.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/features/meeting/meeting-create.html")
+	})
+	http.HandleFunc("/meeting-join.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/features/meeting/meeting-join.html")
+	})
+	http.HandleFunc("/meeting-room.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/features/meeting/meeting-room.html")
+	})
+	http.HandleFunc("/streaming.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/features/streaming/streaming.html")
+	})
+	http.HandleFunc("/recording.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/features/recording/recording.html")
+	})
+	http.HandleFunc("/video.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/features/video/video.html")
+	})
+
+	// JavaScript file redirects for compatibility
+	http.HandleFunc("/meeting-room.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.ServeFile(w, r, "./web/features/meeting/meeting-room.js")
+	})
+	http.HandleFunc("/assets/js/audio-processor.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.ServeFile(w, r, "./web/assets/js/audio-processor.js")
+	})
+	http.HandleFunc("/assets/js/utils.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.ServeFile(w, r, "./web/assets/js/utils.js")
+	})
+
 	http.HandleFunc("/api/speaker-profiles/cleanup", handleSpeakerProfileCleanup)
 	http.HandleFunc("/api/speaker-profiles/", handleSpeakerProfiles)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,64 @@
+/* ============================================
+   Responsive Design
+   ============================================ */
+
+@media (max-width: 768px) {
+    .row {
+        flex-direction: column;
+    }
+
+    .container {
+        padding: var(--spacing-xl);
+    }
+
+    h1 {
+        font-size: 1.5em;
+    }
+
+    h2 {
+        font-size: 1.3em;
+    }
+
+    .button-group {
+        flex-direction: column;
+    }
+
+    .page-gradient {
+        padding: var(--spacing-md);
+    }
+}
+
+@media (max-width: 960px) {
+    .home-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .navbar-container {
+        padding: 16px 24px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .page-content-wrapper {
+        padding: 0 24px 60px;
+    }
+
+    .meeting-highlight {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .navbar-links {
+        gap: 2px;
+    }
+
+    .navbar-links a {
+        font-size: 0.85rem;
+    }
+
+    .theme-toggle {
+        align-self: flex-end;
+    }
+}
