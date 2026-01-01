@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -549,6 +550,7 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
 		"meetingId": meeting.ID,
 		"roomCode":  meeting.RoomCode,
 		"mode":      meeting.Mode,
+		"hostToken": meeting.HostToken,
 	})
 }
 
@@ -816,6 +818,149 @@ func handleDownloadTranscript(w http.ResponseWriter, r *http.Request, roomManage
 	}
 }
 
+func handleDownloadTranscriptSnapshot(w http.ResponseWriter, r *http.Request, roomCode string) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		http.Error(w, "lang is required", http.StatusBadRequest)
+		return
+	}
+
+	mtg, err := getMeetingByCodeOrID(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		return
+	}
+	if mtg == nil {
+		http.Error(w, "Meeting not found", http.StatusNotFound)
+		return
+	}
+
+	snapshot, err := database.GetMeetingTranscriptSnapshot(mtg.ID, lang)
+	if err != nil {
+		log.Printf("Failed to get transcript snapshot: %v", err)
+		http.Error(w, "Failed to load transcript snapshot", http.StatusInternalServerError)
+		return
+	}
+	if snapshot == nil || snapshot.Transcript == "" {
+		http.Error(w, "Transcript snapshot not found", http.StatusNotFound)
+		return
+	}
+
+	filename := fmt.Sprintf("meeting_%s_%s_snapshot.txt", mtg.RoomCode, lang)
+	if mtg.RoomCode == "" {
+		filename = fmt.Sprintf("meeting_%s_%s_snapshot.txt", mtg.ID, lang)
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(snapshot.Transcript)); err != nil {
+		log.Printf("Failed to write transcript snapshot response: %v", err)
+	}
+}
+
+func handleListTranscriptSnapshots(w http.ResponseWriter, r *http.Request, roomCode string) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mtg, err := getMeetingByCodeOrID(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		return
+	}
+	if mtg == nil {
+		http.Error(w, "Meeting not found", http.StatusNotFound)
+		return
+	}
+
+	snapshots, err := database.ListMeetingTranscriptSnapshots(mtg.ID)
+	if err != nil {
+		log.Printf("Failed to list transcript snapshots: %v", err)
+		http.Error(w, "Failed to list transcript snapshots", http.StatusInternalServerError)
+		return
+	}
+
+	type snapshotInfo struct {
+		Language  string `json:"language"`
+		CreatedAt string `json:"createdAt"`
+	}
+
+	items := make([]snapshotInfo, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		items = append(items, snapshotInfo{
+			Language:  snapshot.Language,
+			CreatedAt: snapshot.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"snapshots": items,
+	})
+}
+
+func handleEndMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, roomCode string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		HostToken string `json:"hostToken"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.HostToken == "" {
+		http.Error(w, "Host token required", http.StatusBadRequest)
+		return
+	}
+
+	mtg, err := getMeetingByCodeOrID(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		return
+	}
+	if mtg == nil {
+		http.Error(w, "Meeting not found", http.StatusNotFound)
+		return
+	}
+
+	valid, err := database.ValidateMeetingHostToken(mtg.ID, req.HostToken)
+	if err != nil {
+		log.Printf("Failed to validate host token: %v", err)
+		http.Error(w, "Failed to validate host token", http.StatusInternalServerError)
+		return
+	}
+	if !valid {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := roomManager.EndMeeting(mtg.ID); err != nil {
+		log.Printf("Failed to end meeting: %v", err)
+		http.Error(w, "Failed to end meeting", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+	})
+}
+
 func formatTranscript(entries []meeting.TranscriptEntry) string {
 	if len(entries) == 0 {
 		return ""
@@ -852,6 +997,9 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 	// /api/meetings/{roomCode}/join - POST to join
 	// /api/meetings/{roomCode}/speakers/{speakerId} - POST to update speaker name
 	// /api/meetings/{roomCode}/transcript - GET to download transcript (lang query param)
+	// /api/meetings/{roomCode}/transcript-snapshots - GET to list available snapshots
+	// /api/meetings/{roomCode}/transcript-snapshot - GET to download snapshot (lang query param)
+	// /api/meetings/{roomCode}/end - POST to end meeting (host only)
 	pathParts := strings.Split(r.URL.Path, "/")
 
 	if len(pathParts) < 4 {
@@ -871,6 +1019,24 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 		return
 	}
 
+	// Check if it's a transcript snapshot download
+	if len(pathParts) >= 5 && pathParts[4] == "transcript-snapshot" && r.Method == "GET" {
+		handleDownloadTranscriptSnapshot(w, r, pathParts[3])
+		return
+	}
+
+	// Check if it's a transcript snapshot list
+	if len(pathParts) >= 5 && pathParts[4] == "transcript-snapshots" && r.Method == "GET" {
+		handleListTranscriptSnapshots(w, r, pathParts[3])
+		return
+	}
+
+	// Check if it's an end meeting request
+	if len(pathParts) >= 5 && pathParts[4] == "end" && r.Method == "POST" {
+		handleEndMeeting(w, r, roomManager, pathParts[3])
+		return
+	}
+
 	// Check if it's a speaker name update: /api/meetings/{roomCode}/speakers/{speakerId}
 	if len(pathParts) >= 6 && pathParts[4] == "speakers" && r.Method == "POST" {
 		handleUpdateSpeakerName(w, r, roomManager, pathParts[3], pathParts[5])
@@ -879,6 +1045,143 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 
 	// Otherwise, it's a get meeting info request
 	handleGetMeeting(w, r, roomManager)
+}
+
+func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/speaker-profiles/")
+	if sessionID == "" || sessionID == r.URL.Path {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		profiles, err := database.GetSpeakerProfiles(sessionID)
+		if err != nil {
+			log.Printf("Failed to get speaker profiles: %v", err)
+			http.Error(w, "Failed to get speaker profiles", http.StatusInternalServerError)
+			return
+		}
+
+		type profileInfo struct {
+			ProfileID string    `json:"profileId"`
+			Embedding []float32 `json:"embedding"`
+			Count     int       `json:"count"`
+			UpdatedAt string    `json:"updatedAt"`
+		}
+
+		response := make([]profileInfo, 0, len(profiles))
+		for _, profile := range profiles {
+			response = append(response, profileInfo{
+				ProfileID: profile.ProfileID,
+				Embedding: profile.Embedding,
+				Count:     profile.Count,
+				UpdatedAt: profile.UpdatedAt.Format(time.RFC3339),
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"profiles": response,
+		})
+	case http.MethodPut:
+		type profilePayload struct {
+			ProfileID string    `json:"profileId"`
+			Embedding []float32 `json:"embedding"`
+			Count     int       `json:"count"`
+		}
+		var payload struct {
+			Profiles []profilePayload `json:"profiles"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		profiles := make([]database.SpeakerProfile, 0, len(payload.Profiles))
+		for _, item := range payload.Profiles {
+			if item.ProfileID == "" || len(item.Embedding) == 0 {
+				continue
+			}
+			count := item.Count
+			if count <= 0 {
+				count = 1
+			}
+			profiles = append(profiles, database.SpeakerProfile{
+				SessionID: sessionID,
+				ProfileID: item.ProfileID,
+				Embedding: item.Embedding,
+				Count:     count,
+			})
+		}
+
+		if err := database.ReplaceSpeakerProfiles(sessionID, profiles); err != nil {
+			log.Printf("Failed to persist speaker profiles: %v", err)
+			http.Error(w, "Failed to persist speaker profiles", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"profiles": len(profiles),
+		})
+	case http.MethodDelete:
+		if err := database.DeleteSpeakerProfiles(sessionID); err != nil {
+			log.Printf("Failed to delete speaker profiles: %v", err)
+			http.Error(w, "Failed to delete speaker profiles", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleSpeakerProfileCleanup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ttlSeconds := int64(0)
+	if ttlParam := r.URL.Query().Get("ttl_seconds"); ttlParam != "" {
+		if parsed, err := strconv.ParseInt(ttlParam, 10, 64); err == nil {
+			ttlSeconds = parsed
+		}
+	}
+
+	if ttlSeconds <= 0 {
+		ttlEnv := os.Getenv("SPEAKER_PROFILE_DB_TTL_SECONDS")
+		if ttlEnv != "" {
+			if parsed, err := strconv.ParseInt(ttlEnv, 10, 64); err == nil {
+				ttlSeconds = parsed
+			}
+		}
+	}
+
+	if ttlSeconds <= 0 {
+		http.Error(w, "ttl_seconds is required", http.StatusBadRequest)
+		return
+	}
+
+	cutoff := time.Now().Add(-time.Duration(ttlSeconds) * time.Second)
+	deleted, err := database.DeleteExpiredSpeakerProfiles(cutoff)
+	if err != nil {
+		log.Printf("Failed to delete expired speaker profiles: %v", err)
+		http.Error(w, "Failed to delete expired speaker profiles", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"deletedRows": deleted,
+	})
 }
 
 func main() {
@@ -893,6 +1196,34 @@ func main() {
 	// Create meeting room manager
 	roomManager := meeting.NewRoomManager()
 	log.Println("Meeting room manager initialized")
+
+	// Optional speaker profile cleanup job
+	if ttlEnv := os.Getenv("SPEAKER_PROFILE_DB_TTL_SECONDS"); ttlEnv != "" {
+		if ttlSeconds, err := strconv.ParseInt(ttlEnv, 10, 64); err == nil && ttlSeconds > 0 {
+			intervalSeconds := int64(300)
+			if intervalEnv := os.Getenv("SPEAKER_PROFILE_DB_CLEANUP_INTERVAL_SECONDS"); intervalEnv != "" {
+				if parsed, err := strconv.ParseInt(intervalEnv, 10, 64); err == nil && parsed > 0 {
+					intervalSeconds = parsed
+				}
+			}
+
+			go func() {
+				ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
+				defer ticker.Stop()
+				for range ticker.C {
+					cutoff := time.Now().Add(-time.Duration(ttlSeconds) * time.Second)
+					deleted, err := database.DeleteExpiredSpeakerProfiles(cutoff)
+					if err != nil {
+						log.Printf("Speaker profile cleanup failed: %v", err)
+						continue
+					}
+					if deleted > 0 {
+						log.Printf("Speaker profile cleanup removed %d row(s)", deleted)
+					}
+				}
+			}()
+		}
+	}
 
 	// Check if ffmpeg is installed
 	if err := video.CheckFFmpegInstalled(); err != nil {
@@ -930,6 +1261,8 @@ func main() {
 	ttsClient := tts.New("http://127.0.0.1:8005")
 
 	http.Handle("/", http.FileServer(http.Dir("./web")))
+	http.HandleFunc("/api/speaker-profiles/cleanup", handleSpeakerProfileCleanup)
+	http.HandleFunc("/api/speaker-profiles/", handleSpeakerProfiles)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -1150,6 +1483,9 @@ func main() {
 		participantIDStr := query.Get("participantId")
 		participantName := query.Get("participantName")
 		targetLang := query.Get("targetLang")
+		minSpeakersStr := query.Get("minSpeakers")
+		maxSpeakersStr := query.Get("maxSpeakers")
+		strictnessStr := query.Get("strictness")
 
 		// Validate parameters
 		if participantIDStr == "" || participantName == "" || targetLang == "" {
@@ -1164,6 +1500,27 @@ func main() {
 			return
 		}
 
+		minSpeakers := 0
+		if minSpeakersStr != "" {
+			if parsed, err := strconv.Atoi(minSpeakersStr); err == nil {
+				minSpeakers = parsed
+			}
+		}
+
+		maxSpeakers := 0
+		if maxSpeakersStr != "" {
+			if parsed, err := strconv.Atoi(maxSpeakersStr); err == nil {
+				maxSpeakers = parsed
+			}
+		}
+
+		strictness := 0.0
+		if strictnessStr != "" {
+			if parsed, err := strconv.ParseFloat(strictnessStr, 64); err == nil {
+				strictness = parsed
+			}
+		}
+
 		// Upgrade to WebSocket
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -1172,7 +1529,7 @@ func main() {
 		}
 
 		// Handle the connection
-		go roomManager.HandleMeetingWebSocket(conn, meetingID, participantID, participantName, targetLang)
+		go roomManager.HandleMeetingWebSocket(conn, meetingID, participantID, participantName, targetLang, minSpeakers, maxSpeakers, strictness)
 	})
 
 	log.Println("listening on :8080")

@@ -40,6 +40,17 @@ function getSpeakerStyle(speaker) {
   return speakerColors[speakerKey];
 }
 
+function formatSpeakerLabelText(defaultName, speakerLowConfidence, speakerOverlap) {
+    let label = defaultName || 'Speaker';
+    if (speakerLowConfidence) {
+        label = `${label} · Unknown`;
+    }
+    if (speakerOverlap) {
+        label = `${label} · Overlap`;
+    }
+    return label;
+}
+
 // Display segments with speaker bubbles
 function displaySegmentsWithSpeakers(segments) {
     // Clear the result sections and convert to bubble display
@@ -66,11 +77,17 @@ function displaySegmentsWithSpeakers(segments) {
     segments.forEach(segment => {
         const speaker = segment.speaker || 'SPEAKER_00';
         const style = getSpeakerStyle(speaker);
+        const labelText = formatSpeakerLabelText(style.name, segment.speaker_low_confidence, segment.speaker_overlap);
+        const labelClass = [
+            'speaker-label',
+            segment.speaker_low_confidence ? 'speaker-uncertain' : '',
+            segment.speaker_overlap ? 'speaker-overlap' : ''
+        ].filter(Boolean).join(' ');
 
         const bubble = document.createElement('div');
         bubble.className = `translation-bubble translation-${style.align}`;
         bubble.innerHTML = `
-            <div class="speaker-label" style="color: ${style.border};">${style.name}</div>
+            <div class="${labelClass}" style="color: ${style.border};">${labelText}</div>
             <div class="bubble-content" style="background: ${style.bg}; border-left: 4px solid ${style.border};">
                 <div class="bubble-original">${escapeHtml(segment.text)}</div>
                 <div class="bubble-translated">→ ${escapeHtml(segment.translation || 'Translation pending...')}</div>
@@ -350,7 +367,8 @@ downloadTxtBtn.addEventListener('click', () => {
         resultData.segments.forEach((segment, idx) => {
             const speaker = segment.speaker || 'SPEAKER_00';
             const style = getSpeakerStyle(speaker);
-            text += `${style.name}: ${segment.text}\n`;
+            const labelText = formatSpeakerLabelText(style.name, segment.speaker_low_confidence, segment.speaker_overlap);
+            text += `${labelText}: ${segment.text}\n`;
         });
         text += `\n${'='.repeat(80)}\n\n`;
 
@@ -359,7 +377,8 @@ downloadTxtBtn.addEventListener('click', () => {
             const speaker = segment.speaker || 'SPEAKER_00';
             const style = getSpeakerStyle(speaker);
             const translation = segment.translation || segment.text;
-            text += `${style.name}: ${translation}\n`;
+            const labelText = formatSpeakerLabelText(style.name, segment.speaker_low_confidence, segment.speaker_overlap);
+            text += `${labelText}: ${translation}\n`;
         });
     } else {
         // Standard format for single speaker or non-diarized
@@ -393,9 +412,11 @@ downloadJsonBtn.addEventListener('click', () => {
         jsonData.numSpeakers = resultData.numSpeakers;
         jsonData.segments = resultData.segments.map(segment => ({
             speaker: segment.speaker,
-            speakerName: getSpeakerStyle(segment.speaker).name,
+            speakerName: formatSpeakerLabelText(getSpeakerStyle(segment.speaker).name, segment.speaker_low_confidence, segment.speaker_overlap),
             text: segment.text,
-            translation: segment.translation || segment.text
+            translation: segment.translation || segment.text,
+            speakerLowConfidence: segment.speaker_low_confidence || false,
+            speakerOverlap: segment.speaker_overlap || false
         }));
     }
 

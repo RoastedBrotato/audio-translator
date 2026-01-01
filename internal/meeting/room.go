@@ -49,6 +49,61 @@ func (rm *RoomManager) GetRoom(meetingID string) *Room {
 	return rm.activeRooms[meetingID]
 }
 
+// EndMeeting closes a meeting, saves transcript snapshots, and disconnects participants.
+func (rm *RoomManager) EndMeeting(meetingID string) error {
+	rm.mu.Lock()
+	room, exists := rm.activeRooms[meetingID]
+	if !exists {
+		rm.mu.Unlock()
+		return nil
+	}
+
+	transcriptSnapshots := make(map[string]string)
+	for _, lang := range room.GetTranscriptLanguages() {
+		entries := room.GetTranscript(lang)
+		if len(entries) == 0 {
+			continue
+		}
+		transcriptSnapshots[lang] = formatTranscriptEntries(entries)
+	}
+
+	participants := make([]*Participant, 0, len(room.Participants))
+	for _, participant := range room.Participants {
+		participants = append(participants, participant)
+	}
+
+	delete(rm.activeRooms, meetingID)
+	rm.mu.Unlock()
+
+	if err := database.EndMeeting(meetingID); err != nil {
+		return err
+	}
+
+	for lang, transcript := range transcriptSnapshots {
+		if err := database.SaveMeetingTranscriptSnapshot(meetingID, lang, transcript); err != nil {
+			log.Printf("Failed to save meeting transcript snapshot %s/%s: %v", meetingID, lang, err)
+		}
+	}
+
+	message := Message{
+		Type:      "meeting_ended",
+		Timestamp: time.Now(),
+	}
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return nil
+	}
+
+	for _, participant := range participants {
+		if participant.Connection != nil {
+			_ = participant.Connection.WriteMessage(websocket.TextMessage, payload)
+			participant.Connection.Close()
+		}
+	}
+
+	return nil
+}
+
 // AddParticipant adds a participant to a room
 func (rm *RoomManager) AddParticipant(meetingID string, participant *Participant) {
 	rm.mu.Lock()
@@ -89,6 +144,24 @@ func (rm *RoomManager) UpdateParticipantLanguage(meetingID string, participantID
 	}
 }
 
+// GetParticipantDiarizationSettings returns diarization settings for a participant.
+func (rm *RoomManager) GetParticipantDiarizationSettings(meetingID string, participantID int) (int, int, float64) {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	room, exists := rm.activeRooms[meetingID]
+	if !exists {
+		return 0, 0, 0
+	}
+
+	participant, exists := room.Participants[participantID]
+	if !exists {
+		return 0, 0, 0
+	}
+
+	return participant.MinSpeakers, participant.MaxSpeakers, participant.Strictness
+}
+
 // RemoveParticipant removes a participant from a room
 func (rm *RoomManager) RemoveParticipant(meetingID string, participantID int) {
 	rm.mu.Lock()
@@ -117,6 +190,8 @@ func (rm *RoomManager) RemoveParticipant(meetingID string, participantID int) {
 		log.Printf("Meeting room %s is empty - removed", meetingID)
 		rm.mu.Unlock()
 
+		clearSpeakerProfile(meetingID, participantID)
+
 		if err := database.EndMeeting(meetingID); err != nil {
 			log.Printf("Failed to mark meeting ended %s: %v", meetingID, err)
 		}
@@ -130,6 +205,8 @@ func (rm *RoomManager) RemoveParticipant(meetingID string, participantID int) {
 	}
 
 	rm.mu.Unlock()
+
+	clearSpeakerProfile(meetingID, participantID)
 }
 
 // Broadcast sends a message to all participants in a room

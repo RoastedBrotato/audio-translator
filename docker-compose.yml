@@ -28,6 +28,7 @@ services:
     environment:
       - CUDA_VISIBLE_DEVICES=0
       - HF_TOKEN=${HF_TOKEN}
+      - SPEAKER_PROFILE_STORE_URL=${SPEAKER_PROFILE_STORE_URL:-http://localhost:8080}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health').read()"]
       interval: 30s

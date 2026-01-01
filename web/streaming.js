@@ -248,16 +248,33 @@ function getSpeakerStyle(speaker) {
   return speakerColors[speakerKey];
 }
 
+function formatSpeakerLabelText(defaultName, speakerLowConfidence, speakerOverlap) {
+  let label = defaultName || 'Speaker';
+  if (speakerLowConfidence) {
+    label = `${label} · Unknown`;
+  }
+  if (speakerOverlap) {
+    label = `${label} · Overlap`;
+  }
+  return label;
+}
+
 function addTranslationToUI(segment) {
   const div = document.createElement('div');
 
   if (segment.speaker) {
     // Chat bubble style with speaker labels
     const style = getSpeakerStyle(segment.speaker);
+    const labelText = formatSpeakerLabelText(style.name, segment.speakerLowConfidence, segment.speakerOverlap);
+    const labelClass = [
+      'speaker-label',
+      segment.speakerLowConfidence ? 'speaker-uncertain' : '',
+      segment.speakerOverlap ? 'speaker-overlap' : ''
+    ].filter(Boolean).join(' ');
 
     div.className = `translation-bubble translation-${style.align}`;
     div.innerHTML = `
-      <div class="speaker-label" style="color: ${style.border};">${style.name}</div>
+      <div class="${labelClass}" style="color: ${style.border};">${labelText}</div>
       <div class="bubble-content" style="background: ${style.bg}; border-left: 4px solid ${style.border};">
         <div class="bubble-original">${escapeHtml(segment.original)}</div>
         <div class="bubble-translated">→ ${escapeHtml(segment.translation || 'Translating...')}</div>
@@ -345,7 +362,9 @@ async function displayFinalTranscription(result) {
           timestamp: new Date().toISOString(),
           start: segment.start,
           end: segment.end,
-          speaker: segment.speaker || null  // Include speaker info if available
+          speaker: segment.speaker || null,  // Include speaker info if available
+          speakerLowConfidence: segment.speaker_low_confidence || false,
+          speakerOverlap: segment.speaker_overlap || false
         });
 
         segmentCount++;

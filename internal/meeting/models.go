@@ -15,6 +15,9 @@ type Participant struct {
 	TargetLanguage string
 	JoinedAt       time.Time
 	Connection     *websocket.Conn
+	MinSpeakers    int
+	MaxSpeakers    int
+	Strictness     float64
 }
 
 // Message represents a message to be broadcast to meeting participants
@@ -26,6 +29,10 @@ type Message struct {
 	SpeakerParticipantID int               `json:"speakerParticipantId,omitempty"`
 	SpeakerID            string            `json:"speakerId,omitempty"` // For speaker diarization (e.g., "SPEAKER_00")
 	SpeakerName          string            `json:"speakerName,omitempty"`
+	SpeakerConfidence    float64           `json:"speakerConfidence,omitempty"`
+	SpeakerOverlap       bool              `json:"speakerOverlap,omitempty"`
+	SpeakerOverlapRatio  float64           `json:"speakerOverlapRatio,omitempty"`
+	SpeakerLowConfidence bool              `json:"speakerLowConfidence,omitempty"`
 	OriginalText         string            `json:"originalText,omitempty"`
 	SourceLanguage       string            `json:"sourceLanguage,omitempty"`
 	Translations         map[string]string `json:"translations,omitempty"`

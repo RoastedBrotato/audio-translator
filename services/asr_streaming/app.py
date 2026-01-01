@@ -10,11 +10,13 @@ import json
 import os
 from collections import deque
 import time
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
 from pyannote.audio import Pipeline, Inference
 import io
 import wave
+import requests
 
 app = FastAPI()
 
@@ -101,8 +103,14 @@ SILENCE_DURATION = 1.2  # Seconds of silence to finalize segment
 MAX_SEGMENT_DURATION = 10.0  # Max seconds before forcing finalization (new!)
 
 # Speaker tracking configuration
-SPEAKER_SIM_THRESHOLD = 0.82
-MIN_EMBED_DURATION = 0.8
+SPEAKER_SIM_THRESHOLD = float(os.getenv("SPEAKER_SIM_THRESHOLD", "0.82"))
+MIN_EMBED_DURATION = float(os.getenv("MIN_EMBED_DURATION", "0.8"))
+SPEAKER_OVERLAP_RATIO_THRESHOLD = float(os.getenv("SPEAKER_OVERLAP_RATIO_THRESHOLD", "0.25"))
+SPEAKER_CONFIDENCE_THRESHOLD = float(os.getenv("SPEAKER_CONFIDENCE_THRESHOLD", "0.55"))
+SPEAKER_PROFILE_TTL_SECONDS = int(os.getenv("SPEAKER_PROFILE_TTL_SECONDS", "3600"))
+SPEAKER_PROFILE_CLEANUP_INTERVAL_SECONDS = int(os.getenv("SPEAKER_PROFILE_CLEANUP_INTERVAL_SECONDS", "300"))
+SPEAKER_PROFILE_STORE_URL = os.getenv("SPEAKER_PROFILE_STORE_URL", "").rstrip("/")
+SPEAKER_PROFILE_PERSIST_INTERVAL_SECONDS = int(os.getenv("SPEAKER_PROFILE_PERSIST_INTERVAL_SECONDS", "15"))
 
 # Thread pool for CPU-bound operations
 executor = ThreadPoolExecutor(max_workers=4)
@@ -110,6 +118,7 @@ executor = ThreadPoolExecutor(max_workers=4)
 # Session storage for final high-quality transcriptions
 session_transcriptions: Dict[str, dict] = {}
 session_speaker_profiles: Dict[str, dict] = {}
+last_profile_cleanup_ts = 0.0
 
 def audio_array_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) -> bytes:
     """Convert numpy audio array to WAV bytes for diarization pipeline"""
@@ -124,12 +133,71 @@ def audio_array_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) 
     wav_buffer.seek(0)
     return wav_buffer.read()
 
-def perform_speaker_diarization(audio_array: np.ndarray, min_speakers: Optional[int] = None, max_speakers: Optional[int] = None) -> list:
+def perform_speaker_diarization(
+    audio_array: np.ndarray,
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
+    strictness: Optional[float] = None
+) -> list:
     """
     Perform speaker diarization on audio
     Returns list of (start_time, end_time, speaker_label) tuples
     """
     if not DIARIZATION_ENABLED or diarization_pipeline is None:
+        return []
+    try:
+        print("🎭 Starting speaker diarization...")
+
+        # Convert audio to WAV format in memory
+        wav_bytes = audio_array_to_wav_bytes(audio_array, SAMPLE_RATE)
+        wav_io = io.BytesIO(wav_bytes)
+
+        # Run diarization
+        diarization_kwargs = {"uri": "stream", "audio": wav_io}
+        if min_speakers is not None:
+            diarization_kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            diarization_kwargs["max_speakers"] = max_speakers
+        diarization = diarization_pipeline(diarization_kwargs)
+
+        # Extract speaker segments (filter out very short segments)
+        strictness_value = None
+        if strictness is not None:
+            strictness_value = max(0.0, min(1.0, strictness))
+
+        min_segment_duration = 0.4  # Ignore segments shorter than 0.4 seconds
+        smooth_switch_duration = 0.5
+        if strictness_value is not None:
+            min_segment_duration = 0.4 + (0.3 * strictness_value)
+            smooth_switch_duration = 0.5 + (0.4 * strictness_value)
+        speaker_segments = []
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            duration = turn.end - turn.start
+            if duration >= min_segment_duration:
+                speaker_segments.append({
+                    "start": turn.start,
+                    "end": turn.end,
+                    "speaker": speaker
+                })
+            else:
+                print(f"⚠️ Filtering out short segment: {duration:.2f}s from {speaker}")
+
+        if not speaker_segments:
+            return []
+
+        print(f"✅ Diarization complete: found {len(set(s['speaker'] for s in speaker_segments))} speakers")
+
+        # Post-process: smooth rapid speaker changes (reduces confusion)
+        speaker_segments = smooth_speaker_changes(
+            speaker_segments,
+            min_switch_duration=smooth_switch_duration
+        )
+
+        return speaker_segments
+    except Exception as e:
+        print(f"❌ Speaker diarization failed: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -138,11 +206,128 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         return 0.0
     return float(np.dot(a, b) / denom)
 
+def _parse_rfc3339(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        if value.endswith("Z"):
+            value = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+def _extract_speaker_index(speaker_id: str) -> Optional[int]:
+    if not speaker_id or not speaker_id.startswith("SPEAKER_"):
+        return None
+    try:
+        return int(speaker_id.split("_", 1)[1])
+    except ValueError:
+        return None
+
+def _load_profiles_from_store(session_id: str) -> Optional[dict]:
+    if not SPEAKER_PROFILE_STORE_URL:
+        return None
+    try:
+        response = requests.get(f"{SPEAKER_PROFILE_STORE_URL}/api/speaker-profiles/{session_id}", timeout=5)
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+        profiles = payload.get("profiles") or []
+    except Exception as e:
+        print(f"⚠️ Failed to load speaker profiles from store: {e}")
+        return None
+
+    now = time.time()
+    loaded_profiles = []
+    max_index = -1
+    for profile in profiles:
+        profile_id = profile.get("profileId")
+        embedding = profile.get("embedding") or []
+        count = int(profile.get("count") or 1)
+        updated_at = _parse_rfc3339(profile.get("updatedAt", ""))
+        if SPEAKER_PROFILE_TTL_SECONDS > 0 and updated_at is not None:
+            if (datetime.now(timezone.utc) - updated_at).total_seconds() > SPEAKER_PROFILE_TTL_SECONDS:
+                continue
+        if not profile_id or not embedding:
+            continue
+        emb_array = np.array(embedding, dtype=np.float32)
+        loaded_profiles.append({
+            "id": profile_id,
+            "embedding": emb_array,
+            "count": max(1, count),
+        })
+        idx = _extract_speaker_index(profile_id)
+        if idx is not None:
+            max_index = max(max_index, idx)
+
+    if not loaded_profiles:
+        return None
+
+    return {
+        "next_id": max_index + 1,
+        "profiles": loaded_profiles,
+        "last_seen": now,
+        "last_persist": now,
+    }
+
+def _persist_profiles_to_store(session_id: str, state: dict) -> None:
+    if not SPEAKER_PROFILE_STORE_URL:
+        return
+    profiles = state.get("profiles") or []
+    payload = {
+        "profiles": [
+            {
+                "profileId": profile.get("id"),
+                "embedding": profile.get("embedding").astype(float).tolist(),
+                "count": profile.get("count", 1),
+            }
+            for profile in profiles
+            if profile.get("id") and profile.get("embedding") is not None
+        ]
+    }
+    try:
+        response = requests.put(
+            f"{SPEAKER_PROFILE_STORE_URL}/api/speaker-profiles/{session_id}",
+            json=payload,
+            timeout=5
+        )
+        if response.status_code >= 300:
+            print(f"⚠️ Speaker profile store rejected update: {response.status_code}")
+            return
+        state["last_persist"] = time.time()
+    except Exception as e:
+        print(f"⚠️ Failed to persist speaker profiles: {e}")
+
+def _maybe_persist_state(session_id: str, state: dict, changed: bool) -> None:
+    if not SPEAKER_PROFILE_STORE_URL:
+        return
+    last_persist = state.get("last_persist", 0.0)
+    if not changed and (time.time() - last_persist) < SPEAKER_PROFILE_PERSIST_INTERVAL_SECONDS:
+        return
+    _persist_profiles_to_store(session_id, state)
+
 def _get_session_state(session_id: str) -> dict:
+    global last_profile_cleanup_ts
+    now = time.time()
+    if SPEAKER_PROFILE_TTL_SECONDS > 0 and (now - last_profile_cleanup_ts) >= SPEAKER_PROFILE_CLEANUP_INTERVAL_SECONDS:
+        expired_sessions = [
+            sid for sid, state in session_speaker_profiles.items()
+            if now - state.get("last_seen", now) > SPEAKER_PROFILE_TTL_SECONDS
+        ]
+        for sid in expired_sessions:
+            del session_speaker_profiles[sid]
+        if expired_sessions:
+            print(f"🧹 Cleaned up {len(expired_sessions)} expired speaker profile(s)")
+        last_profile_cleanup_ts = now
+
     state = session_speaker_profiles.get(session_id)
     if state is None:
-        state = {"next_id": 0, "profiles": []}
+        state = _load_profiles_from_store(session_id)
+        if state is None:
+            state = {"next_id": 0, "profiles": [], "last_seen": now, "last_persist": 0.0}
         session_speaker_profiles[session_id] = state
+    else:
+        state["last_seen"] = now
     return state
 
 def _compute_embedding(audio_array: np.ndarray, start: float, end: float) -> Optional[np.ndarray]:
@@ -167,6 +352,7 @@ def assign_persistent_speakers(speaker_segments: list, audio_array: np.ndarray, 
 
     state = _get_session_state(session_id)
     label_cache: Dict[str, str] = {}
+    state_changed = False
 
     for seg in speaker_segments:
         label = seg.get("speaker", "SPEAKER_00")
@@ -192,6 +378,7 @@ def assign_persistent_speakers(speaker_segments: list, audio_array: np.ndarray, 
                     count = profile["count"]
                     profile["embedding"] = (profile["embedding"] * count + emb) / (count + 1)
                     profile["count"] = count + 1
+                    state_changed = True
                     break
             seg["speaker"] = best_id
             label_cache[label] = best_id
@@ -205,50 +392,10 @@ def assign_persistent_speakers(speaker_segments: list, audio_array: np.ndarray, 
             })
             seg["speaker"] = new_id
             label_cache[label] = new_id
+            state_changed = True
 
+    _maybe_persist_state(session_id, state, state_changed)
     return speaker_segments
-
-    try:
-        print("🎭 Starting speaker diarization...")
-
-        # Convert audio to WAV format in memory
-        wav_bytes = audio_array_to_wav_bytes(audio_array, SAMPLE_RATE)
-        wav_io = io.BytesIO(wav_bytes)
-
-        # Run diarization
-        diarization_kwargs = {"uri": "stream", "audio": wav_io}
-        if min_speakers is not None:
-            diarization_kwargs["min_speakers"] = min_speakers
-        if max_speakers is not None:
-            diarization_kwargs["max_speakers"] = max_speakers
-        diarization = diarization_pipeline(diarization_kwargs)
-
-        # Extract speaker segments (filter out very short segments)
-        MIN_SEGMENT_DURATION = 0.4  # Ignore segments shorter than 0.4 seconds
-        speaker_segments = []
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
-            duration = turn.end - turn.start
-            if duration >= MIN_SEGMENT_DURATION:
-                speaker_segments.append({
-                    "start": turn.start,
-                    "end": turn.end,
-                    "speaker": speaker
-                })
-            else:
-                print(f"⚠️ Filtering out short segment: {duration:.2f}s from {speaker}")
-
-        print(f"✅ Diarization complete: found {len(set(s['speaker'] for s in speaker_segments))} speakers")
-        
-        # Post-process: smooth rapid speaker changes (reduces confusion)
-        speaker_segments = smooth_speaker_changes(speaker_segments)
-        
-        return speaker_segments
-
-    except Exception as e:
-        print(f"❌ Speaker diarization failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
 
 def smooth_speaker_changes(speaker_segments: list, min_switch_duration: float = 0.5) -> list:
     """
@@ -283,6 +430,10 @@ def smooth_speaker_changes(speaker_segments: list, min_switch_duration: float = 
     
     return smoothed
 
+def _segment_overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
+    overlap = min(a_end, b_end) - max(a_start, b_start)
+    return max(0.0, overlap)
+
 def assign_speakers_to_segments(transcription_segments: list, speaker_segments: list) -> list:
     """
     Assign speaker labels to transcription segments based on temporal overlap
@@ -296,20 +447,36 @@ def assign_speakers_to_segments(transcription_segments: list, speaker_segments: 
         seg_start = seg["start"]
         seg_end = seg["end"]
         seg_mid = (seg_start + seg_end) / 2
+        seg_duration = max(0.001, seg_end - seg_start)
 
         # Find the speaker segment that overlaps most with this transcription segment
         best_speaker = None
         max_overlap = 0
+        overlap_by_speaker = {}
+        total_overlap = 0.0
 
         for spk in speaker_segments:
             # Calculate overlap
-            overlap_start = max(seg_start, spk["start"])
-            overlap_end = min(seg_end, spk["end"])
-            overlap = max(0, overlap_end - overlap_start)
+            overlap = _segment_overlap(seg_start, seg_end, spk["start"], spk["end"])
+            if overlap <= 0:
+                continue
+            total_overlap += overlap
+            overlap_by_speaker[spk["speaker"]] = overlap_by_speaker.get(spk["speaker"], 0.0) + overlap
 
             if overlap > max_overlap:
                 max_overlap = overlap
                 best_speaker = spk["speaker"]
+
+        speaker_confidence = 0.0
+        speaker_overlap_ratio = 0.0
+        speaker_overlap = False
+
+        if overlap_by_speaker:
+            speaker_confidence = max_overlap / seg_duration
+            speaker_overlap_ratio = max(0.0, (total_overlap - max_overlap) / seg_duration)
+
+            if len(overlap_by_speaker) > 1:
+                speaker_overlap = speaker_overlap_ratio >= SPEAKER_OVERLAP_RATIO_THRESHOLD
 
         # If no overlap, use midpoint to find closest speaker segment
         if best_speaker is None:
@@ -326,7 +493,11 @@ def assign_speakers_to_segments(transcription_segments: list, speaker_segments: 
 
         result.append({
             **seg,
-            "speaker": best_speaker or "SPEAKER_00"
+            "speaker": best_speaker or "SPEAKER_00",
+            "speaker_confidence": speaker_confidence,
+            "speaker_overlap": speaker_overlap,
+            "speaker_overlap_ratio": speaker_overlap_ratio,
+            "speaker_low_confidence": speaker_confidence < SPEAKER_CONFIDENCE_THRESHOLD
         })
 
     return result
@@ -812,10 +983,20 @@ async def transcribe_with_diarization(request: Request):
         # Step 2: Perform speaker diarization
         min_speakers = request.query_params.get("min_speakers")
         max_speakers = request.query_params.get("max_speakers")
+        strictness = request.query_params.get("strictness")
         min_speakers = int(min_speakers) if min_speakers and min_speakers.isdigit() else None
         max_speakers = int(max_speakers) if max_speakers and max_speakers.isdigit() else None
+        try:
+            strictness = float(strictness) if strictness is not None else None
+        except ValueError:
+            strictness = None
 
-        speaker_segments = perform_speaker_diarization(audio_array, min_speakers=min_speakers, max_speakers=max_speakers)
+        speaker_segments = perform_speaker_diarization(
+            audio_array,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+            strictness=strictness
+        )
         # Step 2.5: Stabilize speaker IDs across chunks (if session_id provided)
         speaker_segments = assign_persistent_speakers(speaker_segments, audio_array, session_id)
 
@@ -875,6 +1056,17 @@ async def get_final_transcription(session_id: str):
                 "error": "Session not found or still processing"
             }
         )
+
+@app.delete("/speaker-profiles/{session_id}")
+async def delete_speaker_profile(session_id: str):
+    if session_id in session_speaker_profiles:
+        del session_speaker_profiles[session_id]
+    if SPEAKER_PROFILE_STORE_URL:
+        try:
+            requests.delete(f"{SPEAKER_PROFILE_STORE_URL}/api/speaker-profiles/{session_id}", timeout=5)
+        except Exception as e:
+            print(f"⚠️ Failed to delete speaker profile from store: {e}")
+    return {"success": True}
 
 if __name__ == "__main__":
     import uvicorn

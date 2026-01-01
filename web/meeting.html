@@ -323,6 +323,13 @@
                     throw new Error(data.error || 'Failed to create meeting');
                 }
 
+                if (data.hostToken) {
+                    sessionStorage.setItem('hostToken', data.hostToken);
+                    sessionStorage.setItem('hostRoomCode', data.roomCode);
+                    localStorage.setItem('hostToken', data.hostToken);
+                    localStorage.setItem('hostRoomCode', data.roomCode);
+                }
+
                 // Show success with room code
                 const modeLabel = mode === 'shared' ? 'Shared Room (Speaker Identification)' : 'Individual Devices';
                 messageContainer.innerHTML = `

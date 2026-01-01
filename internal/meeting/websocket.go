@@ -29,7 +29,7 @@ const (
 )
 
 // HandleMeetingWebSocket handles WebSocket connections for meeting rooms
-func (rm *RoomManager) HandleMeetingWebSocket(conn *websocket.Conn, meetingID string, participantID int, participantName, targetLang string) {
+func (rm *RoomManager) HandleMeetingWebSocket(conn *websocket.Conn, meetingID string, participantID int, participantName, targetLang string, minSpeakers int, maxSpeakers int, strictness float64) {
 	log.Printf("Meeting WebSocket connected: participant %d (%s) in meeting %s", participantID, participantName, meetingID)
 
 	// Get meeting to check mode
@@ -55,6 +55,9 @@ func (rm *RoomManager) HandleMeetingWebSocket(conn *websocket.Conn, meetingID st
 		TargetLanguage: targetLang,
 		JoinedAt:       time.Now(),
 		Connection:     conn,
+		MinSpeakers:    minSpeakers,
+		MaxSpeakers:    maxSpeakers,
+		Strictness:     strictness,
 	}
 
 	// Add participant to room
@@ -214,8 +217,13 @@ func (rm *RoomManager) processIndividualAudio(meetingID string, participantID in
 func (rm *RoomManager) processSharedRoomAudio(meetingID string, participantID int, participantName string, wavData []byte, targetLangs []string) {
 	log.Printf("[DEBUG] Processing shared room audio for participant %d (%s)", participantID, participantName)
 
+	minSpeakers, maxSpeakers, strictness := rm.GetParticipantDiarizationSettings(meetingID, participantID)
+	if minSpeakers <= 0 {
+		minSpeakers = 2
+	}
+
 	// Use diarization endpoint on this device's audio
-	result, err := transcribeWithDiarization(wavData, meetingID, participantID, 2, 0)
+	result, err := transcribeWithDiarization(wavData, meetingID, participantID, minSpeakers, maxSpeakers, strictness)
 	if err != nil {
 		log.Printf("Error transcribing with diarization: %v", err)
 		log.Printf("[FALLBACK] Falling back to simple transcription without diarization")
@@ -264,6 +272,10 @@ func (rm *RoomManager) processSharedRoomAudio(meetingID string, participantID in
 			SpeakerParticipantID: participantID,
 			SpeakerID:            deviceSpeakerID,
 			SpeakerName:          speakerName,
+			SpeakerConfidence:    segment.SpeakerConfidence,
+			SpeakerOverlap:       segment.SpeakerOverlap,
+			SpeakerOverlapRatio:  segment.SpeakerOverlapRatio,
+			SpeakerLowConfidence: segment.SpeakerLowConfidence,
 			OriginalText:         segment.Text,
 			SourceLanguage:       result.Language,
 			Translations:         translations,
@@ -312,15 +324,19 @@ type DiarizationResult struct {
 	Language    string `json:"language"`
 	NumSpeakers int    `json:"num_speakers"`
 	Segments    []struct {
-		Speaker string  `json:"speaker"` // e.g., "SPEAKER_00"
-		Text    string  `json:"text"`
-		Start   float64 `json:"start"`
-		End     float64 `json:"end"`
+		Speaker              string  `json:"speaker"` // e.g., "SPEAKER_00"
+		Text                 string  `json:"text"`
+		Start                float64 `json:"start"`
+		End                  float64 `json:"end"`
+		SpeakerConfidence    float64 `json:"speaker_confidence"`
+		SpeakerOverlap       bool    `json:"speaker_overlap"`
+		SpeakerOverlapRatio  float64 `json:"speaker_overlap_ratio"`
+		SpeakerLowConfidence bool    `json:"speaker_low_confidence"`
 	} `json:"segments"`
 }
 
 // transcribeWithDiarization sends audio to ASR service with speaker diarization
-func transcribeWithDiarization(wavData []byte, meetingID string, participantID int, minSpeakers int, maxSpeakers int) (*DiarizationResult, error) {
+func transcribeWithDiarization(wavData []byte, meetingID string, participantID int, minSpeakers int, maxSpeakers int, strictness float64) (*DiarizationResult, error) {
 	sessionID := fmt.Sprintf("meeting_%s_p%d", meetingID, participantID)
 	query := url.Values{}
 	query.Set("session_id", sessionID)
@@ -329,6 +345,9 @@ func transcribeWithDiarization(wavData []byte, meetingID string, participantID i
 	}
 	if maxSpeakers > 0 {
 		query.Set("max_speakers", fmt.Sprintf("%d", maxSpeakers))
+	}
+	if strictness > 0 {
+		query.Set("strictness", fmt.Sprintf("%.2f", strictness))
 	}
 	url := fmt.Sprintf("%s/transcribe-with-diarization?%s", asrBaseURL, query.Encode())
 	req, err := http.NewRequest("POST", url, bytes.NewReader(wavData))
@@ -355,6 +374,32 @@ func transcribeWithDiarization(wavData []byte, meetingID string, participantID i
 	}
 
 	return &result, nil
+}
+
+func clearSpeakerProfile(meetingID string, participantID int) {
+	sessionID := fmt.Sprintf("meeting_%s_p%d", meetingID, participantID)
+	if err := database.DeleteSpeakerProfiles(sessionID); err != nil {
+		log.Printf("Failed to delete speaker profiles from DB: %v", err)
+	}
+	url := fmt.Sprintf("%s/speaker-profiles/%s", asrBaseURL, sessionID)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		log.Printf("Failed to build speaker profile cleanup request: %v", err)
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Failed to cleanup speaker profile %s: %v", sessionID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("Speaker profile cleanup failed (%s): %s", sessionID, string(bodyBytes))
+	}
 }
 
 // formatSpeakerID converts "SPEAKER_00" to "Speaker 1"

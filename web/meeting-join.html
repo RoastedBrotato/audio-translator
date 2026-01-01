@@ -279,6 +279,19 @@
                 sessionStorage.setItem('targetLanguage', targetLanguage);
                 sessionStorage.setItem('roomCode', roomCode);
 
+                let hostRoomCode = sessionStorage.getItem('hostRoomCode');
+                if (!hostRoomCode || hostRoomCode !== roomCode) {
+                    const storedHostRoomCode = localStorage.getItem('hostRoomCode');
+                    const storedHostToken = localStorage.getItem('hostToken');
+                    if (storedHostRoomCode === roomCode && storedHostToken) {
+                        sessionStorage.setItem('hostToken', storedHostToken);
+                        sessionStorage.setItem('hostRoomCode', storedHostRoomCode);
+                    } else {
+                        sessionStorage.removeItem('hostToken');
+                        sessionStorage.removeItem('hostRoomCode');
+                    }
+                }
+
                 // Redirect to meeting room
                 window.location.href = `meeting-room.html`;
 

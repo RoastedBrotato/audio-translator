@@ -177,6 +177,31 @@ Edit `cmd/server/main.go` to tune:
 - `WindowSeconds` - Audio buffer size (default: 8 seconds)
 - `FinalizeAfter` - How long text must be stable before finalizing (default: 500ms)
 
+### Speaker Diarization Tuning
+
+Set these environment variables (see `.env.example`) to tune diarization accuracy:
+- `SPEAKER_SIM_THRESHOLD` (default: `0.82`) - embedding similarity to keep a persistent speaker ID
+- `MIN_EMBED_DURATION` (default: `0.8`) - minimum seconds of audio needed to compute an embedding
+- `SPEAKER_OVERLAP_RATIO_THRESHOLD` (default: `0.25`) - overlap ratio to flag segments as overlapping
+- `SPEAKER_CONFIDENCE_THRESHOLD` (default: `0.55`) - minimum overlap ratio to consider a speaker label confident
+- `SPEAKER_PROFILE_TTL_SECONDS` (default: `3600`) - idle time before speaker profiles expire
+- `SPEAKER_PROFILE_CLEANUP_INTERVAL_SECONDS` (default: `300`) - how often to sweep expired profiles
+- `SPEAKER_PROFILE_STORE_URL` (optional) - Go server base URL for persisting speaker profiles
+- `SPEAKER_PROFILE_PERSIST_INTERVAL_SECONDS` (default: `15`) - minimum seconds between persistence updates
+- `SPEAKER_PROFILE_DB_TTL_SECONDS` (optional) - delete stored profiles older than this (Go server cleanup)
+- `SPEAKER_PROFILE_DB_CLEANUP_INTERVAL_SECONDS` (default: `300`) - cleanup cadence for stored profiles
+
+### Speaker Profile Cleanup Script
+
+Run manual cleanup against the Go server:
+```bash
+./cleanup-speaker-profiles.sh 86400
+```
+
+Optional environment variables:
+- `BASE_URL` (default: `http://localhost:8080`)
+- `SPEAKER_PROFILE_DB_TTL_SECONDS` (used if no arg provided)
+
 ## Troubleshooting
 
 ### No audio is captured
