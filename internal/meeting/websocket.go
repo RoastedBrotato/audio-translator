@@ -222,6 +222,8 @@ func (rm *RoomManager) processSharedRoomAudio(meetingID string, participantID in
 		minSpeakers = 2
 	}
 
+	log.Printf("[DIARIZATION] Settings: minSpeakers=%d, maxSpeakers=%d, strictness=%.2f", minSpeakers, maxSpeakers, strictness)
+
 	// Use diarization endpoint on this device's audio
 	result, err := transcribeWithDiarization(wavData, meetingID, participantID, minSpeakers, maxSpeakers, strictness)
 	if err != nil {
@@ -239,13 +241,17 @@ func (rm *RoomManager) processSharedRoomAudio(meetingID string, participantID in
 		return
 	}
 
-	log.Printf("Diarization found %d speakers, %d segments from participant %d (%s)", result.NumSpeakers, len(result.Segments), participantID, participantName)
+	log.Printf("[DIARIZATION] Result: %d speakers, %d segments, language=%s, participant=%d (%s)",
+		result.NumSpeakers, len(result.Segments), result.Language, participantID, participantName)
 
 	// Get speaker name mappings from database
 	speakerMappings, _ := database.GetSpeakerMappings(meetingID)
 
 	// Process each segment
-	for _, segment := range result.Segments {
+	for i, segment := range result.Segments {
+		log.Printf("[DIARIZATION] Segment %d: speaker=%s, text='%s', start=%.2f, end=%.2f, confidence=%.2f, overlap=%v",
+			i, segment.Speaker, segment.Text, segment.Start, segment.End, segment.SpeakerConfidence, segment.SpeakerOverlap)
+
 		if segment.Text == "" {
 			continue
 		}
@@ -262,6 +268,8 @@ func (rm *RoomManager) processSharedRoomAudio(meetingID string, participantID in
 			// Save to database for future reference
 			database.SetSpeakerName(meetingID, deviceSpeakerID, speakerName)
 		}
+
+		log.Printf("[DIARIZATION] Broadcasting: deviceSpeakerID=%s, speakerName=%s", deviceSpeakerID, speakerName)
 
 		// Translate segment
 		translations := translateParallel(segment.Text, result.Language, targetLangs)
