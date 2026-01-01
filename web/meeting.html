@@ -60,6 +60,10 @@
             background: var(--bg-white);
         }
 
+        .option-card .btn-primary {
+            width: 100%;
+        }
+
         .option-card:hover {
             border-color: var(--primary-color);
             box-shadow: var(--shadow-md);
@@ -84,27 +88,6 @@
             margin-bottom: 20px;
         }
 
-        .btn-primary {
-            width: 100%;
-            padding: 12px;
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .btn-primary:active {
-            transform: translateY(0);
-        }
 
         .divider {
             text-align: center;
@@ -149,6 +132,7 @@
             gap: 10px;
             margin-bottom: 15px;
         }
+
 
         input {
             flex: 1;
@@ -297,7 +281,7 @@
             <h3>Join Existing Meeting</h3>
             <div class="input-group">
                 <input type="text" id="roomCodeInput" placeholder="Enter room code (e.g., ABC-123)" />
-                <button class="btn-primary" id="joinBtn" onclick="joinMeeting()" style="width: auto; padding: 12px 24px;">
+                <button class="btn-primary" id="joinBtn" onclick="joinMeeting()">
                     Join
                 </button>
             </div>

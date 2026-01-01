@@ -27,6 +27,9 @@ function createNavbar() {
         <a href="video.html" class="${currentPath === 'video.html' ? 'active' : ''}">
           🎬 Video Upload
         </a>
+        <a href="overview.html" class="${currentPath === 'overview.html' ? 'active' : ''}">
+          🧭 How It Works
+        </a>
       </div>
       <button class="theme-toggle" type="button" aria-label="Toggle theme">
         <span class="theme-toggle-icon" aria-hidden="true">🌙</span>

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>How It Works - Audio Translator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="page-simple page-home">
+  <div class="home-shell">
+    <section class="home-hero">
+      <div>
+        <h1 class="hero-title">How Audio Translator Works</h1>
+        <p class="hero-subtitle">
+          A clear overview of the models, services, and data flow so you can explain the system with confidence.
+        </p>
+      </div>
+      <div class="hero-panel">
+        <h3>Core stack</h3>
+        <div class="hero-stat">
+          <span>ASR</span>
+          <strong>Whisper + faster-whisper</strong>
+        </div>
+        <div class="hero-stat">
+          <span>Diarization</span>
+          <strong>pyannote</strong>
+        </div>
+        <div class="hero-stat">
+          <span>Translation</span>
+          <strong>HTTP translator service</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="section-header">
+        <div>
+          <div class="section-title">System map</div>
+          <div class="section-subtitle">What talks to what, and when.</div>
+        </div>
+      </div>
+      <div class="diagram-card">
+        <svg class="system-diagram" viewBox="0 0 960 380" preserveAspectRatio="xMidYMid meet" role="img" aria-label="System diagram showing frontend, Go server, ASR service, translation service, diarization, and storage">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L6,3 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+          <rect class="diagram-lane" x="20" y="18" width="920" height="82" rx="18"></rect>
+          <rect class="diagram-lane" x="20" y="108" width="920" height="82" rx="18"></rect>
+          <rect class="diagram-lane" x="20" y="198" width="920" height="82" rx="18"></rect>
+          <rect class="diagram-lane" x="20" y="288" width="920" height="82" rx="18"></rect>
+          <text class="diagram-lane-label" x="36" y="40">UI</text>
+          <text class="diagram-lane-label" x="36" y="130">Server</text>
+          <text class="diagram-lane-label" x="36" y="220">Services</text>
+          <text class="diagram-lane-label" x="36" y="310">Delivery</text>
+          <g class="diagram-node">
+            <rect x="380" y="34" width="200" height="50" rx="16"></rect>
+            <text x="480" y="56">Frontend UI</text>
+            <text x="480" y="72">Streaming · Uploads · Meetings</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="380" y="122" width="200" height="50" rx="16"></rect>
+            <text x="480" y="146">Go Server</text>
+            <text x="480" y="162">Rooms · Progress · Routing</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="110" y="214" width="180" height="50" rx="16"></rect>
+            <text x="200" y="236">ASR Service</text>
+            <text x="200" y="252">Whisper</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="310" y="214" width="180" height="50" rx="16"></rect>
+            <text x="400" y="236">Diarization</text>
+            <text x="400" y="252">pyannote</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="510" y="214" width="180" height="50" rx="16"></rect>
+            <text x="600" y="236">Translation</text>
+            <text x="600" y="252">Multi-target output</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="710" y="214" width="180" height="50" rx="16"></rect>
+            <text x="800" y="236">VAD</text>
+            <text x="800" y="252">Speech gating</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="110" y="304" width="200" height="50" rx="16"></rect>
+            <text x="210" y="326">Clients</text>
+            <text x="210" y="342">Captions · Files · Downloads</text>
+          </g>
+          <g class="diagram-node">
+            <rect x="590" y="304" width="200" height="50" rx="16"></rect>
+            <text x="690" y="326">Storage</text>
+            <text x="690" y="342">Speaker names · Logs</text>
+          </g>
+          <path class="diagram-link" d="M480 84 L480 118" marker-end="url(#arrow)"></path>
+          <path class="diagram-link" d="M480 172 L480 196" marker-end="url(#arrow)"></path>
+          <path class="diagram-bus" d="M200 196 L800 196"></path>
+          <path class="diagram-link" d="M200 196 L200 214" marker-end="url(#arrow)"></path>
+          <path class="diagram-link" d="M400 196 L400 214" marker-end="url(#arrow)"></path>
+          <path class="diagram-link" d="M600 196 L600 214" marker-end="url(#arrow)"></path>
+          <path class="diagram-link" d="M800 196 L800 214" marker-end="url(#arrow)"></path>
+          <path class="diagram-link" d="M210 264 L210 304" marker-end="url(#arrow)"></path>
+          <path class="diagram-link" d="M600 264 L690 304" marker-end="url(#arrow)"></path>
+          <text class="diagram-note" x="400" y="186">speaker labels</text>
+          <text class="diagram-note" x="600" y="186">translations</text>
+        </svg>
+      </div>
+      <div class="info-grid">
+        <div class="info-card">
+          <h3>Frontend</h3>
+          <p>Streaming, meeting, audio, and video pages send audio and requests to the backend.</p>
+          <div class="pill-row">
+            <span class="pill">WebSocket audio</span>
+            <span class="pill">File uploads</span>
+            <span class="pill">Progress updates</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <h3>Go server</h3>
+          <p>Routes requests, manages meetings, stores speaker names, and orchestrates ASR + translation.</p>
+          <div class="pill-row">
+            <span class="pill">Meeting rooms</span>
+            <span class="pill">Speaker names</span>
+            <span class="pill">Transcripts</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <h3>ASR service</h3>
+          <p>Performs transcription, diarization, and high-quality final processing.</p>
+          <div class="pill-row">
+            <span class="pill">Whisper</span>
+            <span class="pill">pyannote</span>
+            <span class="pill">Streaming ASR</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <h3>Translator service</h3>
+          <p>Translates detected speech into each participant’s target language.</p>
+          <div class="pill-row">
+            <span class="pill">Chunked translate</span>
+            <span class="pill">Multi-target</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Process flow</div>
+          <div class="section-subtitle">From audio input to translated output.</div>
+        </div>
+      </div>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <div class="step-index">1</div>
+          <div>
+            <h4>Audio ingestion</h4>
+            <p>Mic audio streams over WebSocket or files upload through HTTP.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-index">2</div>
+          <div>
+            <h4>Pre-processing</h4>
+            <p>Audio is converted to 16kHz mono PCM; optional denoise for uploads.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-index">3</div>
+          <div>
+            <h4>ASR + diarization</h4>
+            <p>Whisper transcribes and pyannote clusters speakers for shared mics.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-index">4</div>
+          <div>
+            <h4>Translation</h4>
+            <p>Text is translated to each target language and broadcast to clients.</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-index">5</div>
+          <div>
+            <h4>Delivery</h4>
+            <p>UI renders captions, speaker labels, and downloadable transcripts.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Meeting modes</div>
+          <div class="section-subtitle">Two ways to run a session.</div>
+        </div>
+      </div>
+      <div class="info-grid">
+        <div class="info-card">
+          <h3>Individual devices</h3>
+          <p>Each participant streams their own mic; translations are personalized.</p>
+        </div>
+        <div class="info-card">
+          <h3>Shared room</h3>
+          <p>Multiple speakers on one mic; diarization labels segments and keeps names.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="meeting-highlight">
+        <div>
+          <h3>Want the diagram in a slide?</h3>
+          <p>Use this page as your quick explainer for demos or stakeholder reviews.</p>
+        </div>
+        <a class="btn-hero" href="index.html">Back to home</a>
+      </div>
+    </section>
+  </div>
+
+  <script src="navbar.js"></script>
+</body>
+</html>

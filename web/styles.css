@@ -37,6 +37,7 @@
     --card-border: rgba(15, 23, 42, 0.08);
     --glass-bg: rgba(255, 255, 255, 0.7);
     --glass-border: rgba(15, 23, 42, 0.12);
+    --on-primary: #f8fafc;
 
     --speaker-0-bg: rgba(20, 184, 166, 0.12);
     --speaker-0-border: #0f766e;
@@ -98,6 +99,7 @@
     --card-border: rgba(148, 163, 184, 0.2);
     --glass-bg: rgba(15, 23, 42, 0.7);
     --glass-border: rgba(148, 163, 184, 0.24);
+    --on-primary: #0f172a;
 
     --speaker-0-bg: rgba(45, 212, 191, 0.18);
     --speaker-0-border: #2dd4bf;
@@ -306,45 +308,57 @@ button {
 }
 
 /* Primary button */
-.btn-primary, button.upload-btn {
-    background: var(--bg-gradient);
-    color: white;
+.btn-primary {
+    background: var(--primary-color);
+    color: var(--on-primary);
+    border: 1px solid var(--primary-dark);
     padding: 15px var(--spacing-xl);
-    font-size: 1.1em;
+    font-size: 1.05em;
+    box-shadow: var(--shadow-sm);
 }
 
-.btn-primary:hover:not(:disabled), button.upload-btn:hover:not(:disabled) {
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    background: var(--primary-dark);
+}
+
+/* Secondary button */
+.btn-secondary {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: var(--bg-hover);
+    transform: translateY(-1px);
+}
+
+/* Success button */
+.btn-success {
+    background: var(--success-gradient);
+    color: var(--on-primary);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    padding: 15px var(--spacing-xl);
+    font-size: 1.05em;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-success:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
 }
 
-.btn-primary:disabled, button.upload-btn:disabled {
-    background: #ccc;
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-success:disabled {
+    background: var(--border-light);
+    color: var(--text-tertiary);
+    border-color: var(--border-light);
     cursor: not-allowed;
     transform: none;
-}
-
-/* Secondary button */
-.btn-secondary, button.clear-btn {
-    background: #f0f0f0;
-    color: var(--text-secondary);
-}
-
-.btn-secondary:hover, button.clear-btn:hover {
-    background: #e0e0e0;
-}
-
-/* Success button */
-.btn-success, .download-btn {
-    background: var(--success-gradient);
-    color: white;
-    padding: 15px var(--spacing-xl);
-    font-size: 1.1em;
-}
-
-.btn-success:hover, .download-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
+    box-shadow: none;
 }
 
 /* Button group */
@@ -881,7 +895,7 @@ input[type="file"] {
 
 .btn-hero {
     background: var(--primary-color);
-    color: white;
+    color: var(--on-primary);
     box-shadow: var(--shadow-md);
 }
 
@@ -1007,6 +1021,153 @@ input[type="file"] {
 .feature-desc {
     color: var(--text-secondary);
     font-size: 0.95rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
+}
+
+.diagram-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-lg);
+    padding: 26px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 18px;
+    overflow: visible;
+}
+
+.system-diagram {
+    width: 100%;
+    height: auto;
+    display: block;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+}
+
+.diagram-node rect {
+    fill: var(--bg-light);
+    stroke: var(--border-color);
+    stroke-width: 1;
+}
+
+.diagram-node text {
+    font-family: var(--font-sans);
+}
+
+.diagram-lane {
+    fill: color-mix(in srgb, var(--bg-light) 70%, transparent);
+    stroke: var(--border-light);
+    stroke-width: 1;
+}
+
+.diagram-lane-label {
+    fill: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.diagram-node text {
+    fill: var(--text-primary);
+    font-size: 14px;
+    text-anchor: middle;
+}
+
+.diagram-node text:nth-of-type(2) {
+    fill: var(--text-secondary);
+    font-size: 11px;
+}
+
+.diagram-link {
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+}
+
+.diagram-bus {
+    stroke: color-mix(in srgb, currentColor 55%, transparent);
+    stroke-width: 1;
+    fill: none;
+}
+
+.diagram-note {
+    fill: var(--text-tertiary);
+    font-size: 11px;
+    text-anchor: middle;
+}
+
+.info-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+.info-card h3 {
+    margin-bottom: 8px;
+    font-size: 1.1rem;
+}
+
+.info-card p {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.pill {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    background: var(--bg-white);
+    font-size: 0.85rem;
+}
+
+.flow-steps {
+    display: grid;
+    gap: 12px;
+}
+
+.flow-step {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 16px;
+    padding: 16px 18px;
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+}
+
+.flow-step h4 {
+    margin-bottom: 6px;
+    font-size: 1rem;
+}
+
+.flow-step p {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.step-index {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg-light);
+    color: var(--primary-color);
+    display: grid;
+    place-items: center;
+    font-weight: 700;
 }
 
 .meeting-highlight {
@@ -1202,6 +1363,7 @@ input[type="file"] {
         align-items: flex-start;
     }
 }
+
 
 @media (max-width: 640px) {
     .navbar-links {

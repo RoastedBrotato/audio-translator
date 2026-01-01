@@ -112,42 +112,6 @@
       margin: 20px 0;
     }
 
-    .upload-btn, .clear-btn {
-      padding: 12px 30px;
-      font-size: 1rem;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 600;
-      transition: all 0.2s;
-    }
-
-    .upload-btn {
-      background: var(--primary-color);
-      color: white;
-    }
-
-    .upload-btn:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md);
-    }
-
-    .upload-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .clear-btn {
-      background: var(--bg-white);
-      color: var(--text-secondary);
-      border: 1px solid var(--border-color);
-    }
-
-    .clear-btn:hover {
-      border-color: var(--primary-color);
-      color: var(--primary-color);
-    }
-
     .progress-container {
       background: var(--bg-white);
       padding: 30px;
@@ -235,24 +199,6 @@
       unicode-bidi: plaintext;
     }
 
-    .download-btn {
-      background: var(--success-gradient);
-      color: white;
-      padding: 12px 30px;
-      font-size: 1rem;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 600;
-      margin: 10px 10px 0 0;
-      display: inline-block;
-      transition: all 0.2s;
-    }
-
-    .download-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md);
-    }
 
     .error-message {
       background: rgba(239, 68, 68, 0.15);
@@ -406,8 +352,8 @@
   <div class="error-message" id="errorMessage"></div>
 
   <div class="button-group">
-    <button class="upload-btn" id="uploadBtn" disabled>Process Audio</button>
-    <button class="clear-btn" id="clearBtn">Clear</button>
+    <button class="btn-primary" id="uploadBtn" disabled>Process Audio</button>
+    <button class="btn-secondary" id="clearBtn">Clear</button>
   </div>
 
   <div class="progress-container" id="progressContainer">
@@ -433,8 +379,8 @@
       <div class="result-content" id="translation"></div>
     </div>
 
-    <button class="download-btn" id="downloadTxtBtn">📄 Download as Text</button>
-    <button class="download-btn" id="downloadJsonBtn">📋 Download as JSON</button>
+    <button class="btn-success" id="downloadTxtBtn">📄 Download as Text</button>
+    <button class="btn-success" id="downloadJsonBtn">📋 Download as JSON</button>
   </div>
 
   <script src="navbar.js"></script>

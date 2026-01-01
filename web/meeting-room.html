@@ -40,21 +40,6 @@
             font-weight: 500;
         }
 
-        .btn-secondary {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-
-        .btn-secondary:hover {
-            background: rgba(255,255,255,0.3);
-        }
-
         .meeting-content {
             display: flex;
             flex: 1;
@@ -221,25 +206,28 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 12px 24px;
-            border: 1px solid var(--primary-color);
-            background: var(--bg-white);
-            color: var(--primary-color);
-            border-radius: 8px;
+            padding: 12px 20px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border-radius: 999px;
             cursor: pointer;
             font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s;
+            font-weight: 600;
+            transition: background 0.3s, transform 0.2s, box-shadow 0.2s;
+            box-shadow: var(--shadow-sm);
         }
 
         .btn-control:hover {
-            background: var(--primary-color);
-            color: white;
+            background: var(--bg-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
         }
 
         .btn-control.active {
             background: var(--primary-color);
-            color: white;
+            color: var(--on-primary);
+            border-color: var(--primary-dark);
         }
 
         .language-selector {
@@ -313,20 +301,6 @@
             color: var(--text-primary);
         }
 
-        .btn-primary {
-            padding: 12px 30px;
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .btn-primary:hover {
-            opacity: 0.9;
-        }
 
         .empty-state {
             text-align: center;
