@@ -2,11 +2,15 @@ package meeting
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"realtime-caption-translator/internal/database"
 )
 
 // RoomManager manages active meeting rooms
@@ -88,10 +92,10 @@ func (rm *RoomManager) UpdateParticipantLanguage(meetingID string, participantID
 // RemoveParticipant removes a participant from a room
 func (rm *RoomManager) RemoveParticipant(meetingID string, participantID int) {
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
 
 	room, exists := rm.activeRooms[meetingID]
 	if !exists {
+		rm.mu.Unlock()
 		return
 	}
 
@@ -101,9 +105,31 @@ func (rm *RoomManager) RemoveParticipant(meetingID string, participantID int) {
 
 	// Cleanup empty rooms
 	if room.IsEmpty() {
+		transcriptSnapshots := make(map[string]string)
+		for _, lang := range room.GetTranscriptLanguages() {
+			entries := room.GetTranscript(lang)
+			if len(entries) == 0 {
+				continue
+			}
+			transcriptSnapshots[lang] = formatTranscriptEntries(entries)
+		}
 		delete(rm.activeRooms, meetingID)
 		log.Printf("Meeting room %s is empty - removed", meetingID)
+		rm.mu.Unlock()
+
+		if err := database.EndMeeting(meetingID); err != nil {
+			log.Printf("Failed to mark meeting ended %s: %v", meetingID, err)
+		}
+
+		for lang, transcript := range transcriptSnapshots {
+			if err := database.SaveMeetingTranscriptSnapshot(meetingID, lang, transcript); err != nil {
+				log.Printf("Failed to save meeting transcript snapshot %s/%s: %v", meetingID, lang, err)
+			}
+		}
+		return
 	}
+
+	rm.mu.Unlock()
 }
 
 // Broadcast sends a message to all participants in a room
@@ -199,9 +225,36 @@ func (rm *RoomManager) GetTranscript(meetingID, language string) []TranscriptEnt
 	return room.GetTranscript(language)
 }
 
+// GetTranscriptLanguages returns all transcript languages for a meeting
+func (rm *RoomManager) GetTranscriptLanguages(meetingID string) []string {
+	rm.mu.RLock()
+	room, exists := rm.activeRooms[meetingID]
+	rm.mu.RUnlock()
+	if !exists {
+		return nil
+	}
+	return room.GetTranscriptLanguages()
+}
+
 // GetActiveRoomCount returns the number of active rooms
 func (rm *RoomManager) GetActiveRoomCount() int {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
 	return len(rm.activeRooms)
+}
+
+func formatTranscriptEntries(entries []TranscriptEntry) string {
+	var b strings.Builder
+	for _, entry := range entries {
+		speaker := entry.SpeakerName
+		if speaker == "" {
+			speaker = entry.SpeakerID
+		}
+		if speaker == "" {
+			speaker = "Speaker"
+		}
+		ts := entry.Timestamp.Format("15:04:05")
+		b.WriteString(fmt.Sprintf("[%s] %s: %s\n", ts, speaker, entry.Text))
+	}
+	return b.String()
 }

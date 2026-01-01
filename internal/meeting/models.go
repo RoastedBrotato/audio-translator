@@ -245,3 +245,18 @@ func (r *Room) GetTranscript(language string) []TranscriptEntry {
 	copy(out, entries)
 	return out
 }
+
+// GetTranscriptLanguages returns the languages that have transcript entries
+func (r *Room) GetTranscriptLanguages() []string {
+	r.transcriptMu.RLock()
+	defer r.transcriptMu.RUnlock()
+
+	if r.transcripts == nil {
+		return nil
+	}
+	langs := make([]string, 0, len(r.transcripts))
+	for lang := range r.transcripts {
+		langs = append(langs, lang)
+	}
+	return langs
+}

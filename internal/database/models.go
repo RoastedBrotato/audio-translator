@@ -40,14 +40,14 @@ type SpeakerMapping struct {
 
 // MeetingParticipant represents a participant in a meeting
 type MeetingParticipant struct {
-	ID             int        `json:"id"`
-	MeetingID      string     `json:"meetingId"`
-	UserID         *int       `json:"userId,omitempty"`
-	ParticipantName string    `json:"participantName"`
-	TargetLanguage string     `json:"targetLanguage"`
-	JoinedAt       time.Time  `json:"joinedAt"`
-	LeftAt         *time.Time `json:"leftAt,omitempty"`
-	IsActive       bool       `json:"isActive"`
+	ID              int        `json:"id"`
+	MeetingID       string     `json:"meetingId"`
+	UserID          *int       `json:"userId,omitempty"`
+	ParticipantName string     `json:"participantName"`
+	TargetLanguage  string     `json:"targetLanguage"`
+	JoinedAt        time.Time  `json:"joinedAt"`
+	LeftAt          *time.Time `json:"leftAt,omitempty"`
+	IsActive        bool       `json:"isActive"`
 }
 
 // --- User CRUD operations ---
@@ -445,4 +445,23 @@ func GetSpeakerName(meetingID, speakerID string) (string, error) {
 	}
 
 	return speakerName, nil
+}
+
+// SaveMeetingTranscriptSnapshot stores the final transcript for a meeting/language
+func SaveMeetingTranscriptSnapshot(meetingID, language, transcript string) error {
+	if meetingID == "" || language == "" || transcript == "" {
+		return fmt.Errorf("meeting transcript snapshot requires meetingID, language, and transcript")
+	}
+
+	query := `
+		INSERT INTO meeting_transcript_snapshots (meeting_id, language, transcript)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (meeting_id, language)
+		DO UPDATE SET transcript = EXCLUDED.transcript, created_at = NOW()
+	`
+	_, err := DB.Exec(query, meetingID, language, transcript)
+	if err != nil {
+		return fmt.Errorf("failed to save meeting transcript snapshot: %w", err)
+	}
+	return nil
 }
