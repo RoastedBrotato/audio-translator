@@ -49,6 +49,42 @@
     flex-wrap: wrap;
 }
 
+.navbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.auth-status {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-subtle);
+}
+
+.auth-button {
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+    font-family: var(--font-sans);
+}
+
+.auth-button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.auth-button:active {
+    transform: translateY(0);
+}
+
 .navbar-links a {
     color: var(--text-secondary);
     text-decoration: none;

@@ -1,5 +1,5 @@
 import { formatDuration } from '../../assets/js/audio-processor.js';
-import { escapeHtml, downloadBlob } from '../../assets/js/utils.js';
+import { escapeHtml, downloadBlob, getAccessToken, postJsonWithAuth } from '../../assets/js/utils.js';
 
 // Audio upload and translation script
 const uploadArea = document.getElementById('uploadArea');
@@ -27,6 +27,7 @@ const enhanceAudio = document.getElementById('enhanceAudio');
 let selectedFile = null;
 let progressWS = null;
 let resultData = null;
+let currentSessionId = null;
 
 // Speaker color mapping (same as streaming)
 const speakerColors = {
@@ -179,6 +180,11 @@ function showError(message) {
 // Upload button click
 uploadBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
+    await startUpload(false);
+});
+
+async function startUpload(forceProcessing) {
+    if (!selectedFile) return;
 
     // Disable buttons during processing
     uploadBtn.disabled = true;
@@ -202,10 +208,20 @@ uploadBtn.addEventListener('click', async () => {
         formData.append('targetLang', targetLang.value);
         formData.append('enableDiarization', enableDiarization.checked ? 'true' : 'false');
         formData.append('enhanceAudio', enhanceAudio.checked ? 'true' : 'false');
+        if (forceProcessing) {
+            formData.append('force', 'true');
+        }
 
         // Upload audio and get session ID
+        const headers = {};
+        const token = getAccessToken();
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+
         const response = await fetch('/upload-audio', {
             method: 'POST',
+            headers,
             body: formData
         });
 
@@ -214,6 +230,8 @@ uploadBtn.addEventListener('click', async () => {
         if (!data.success || !data.sessionId) {
             throw new Error(data.error || 'Failed to start processing');
         }
+
+        currentSessionId = data.sessionId;
 
         // Connect to progress WebSocket
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -224,7 +242,7 @@ uploadBtn.addEventListener('click', async () => {
             console.log('Progress WebSocket connected');
         };
 
-        progressWS.onmessage = (event) => {
+        progressWS.onmessage = async (event) => {
             const update = JSON.parse(event.data);
             console.log('Progress update:', update);
 
@@ -250,6 +268,21 @@ uploadBtn.addEventListener('click', async () => {
 
                 // Store results
                 if (update.results) {
+                    if (update.results.existing) {
+                        const reuse = confirm('We found a previous upload for this file. Use existing result?');
+                        if (!reuse) {
+                            progressContainer.classList.remove('show');
+                            uploadBtn.disabled = false;
+                            clearBtn.disabled = false;
+                            await startUpload(true);
+                            return;
+                        }
+                        progressContainer.classList.remove('show');
+                        uploadBtn.disabled = false;
+                        clearBtn.disabled = false;
+                        showError('Using existing upload. No new processing was done.');
+                        return;
+                    }
                     resultData = {
                         transcription: update.results.transcription || 'No transcription available',
                         translation: update.results.translation || 'No translation available',
@@ -279,6 +312,19 @@ uploadBtn.addEventListener('click', async () => {
                     if (update.results.num_speakers) {
                         console.log(`👥 Detected ${update.results.num_speakers} speaker(s)`);
                     }
+
+                    await postJsonWithAuth('/api/history/audio', {
+                        sessionId: currentSessionId,
+                        filename: selectedFile ? selectedFile.name : 'upload',
+                        transcription: update.results.transcription || '',
+                        translation: update.results.translation || '',
+                        audioPath: update.results.minioAudioKey || '',
+                        sourceLang: sourceLang.value,
+                        targetLang: targetLang.value,
+                        hasDiarization: enableDiarization.checked || (update.results.segments && update.results.segments.length > 0),
+                        numSpeakers: update.results.num_speakers || 0,
+                        segments: update.results.segments || []
+                    });
                 }
 
                 // Wait a bit then show results
@@ -319,7 +365,7 @@ uploadBtn.addEventListener('click', async () => {
             progressWS = null;
         }
     }
-});
+}
 
 // Clear button
 clearBtn.addEventListener('click', () => {

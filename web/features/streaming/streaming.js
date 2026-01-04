@@ -1,5 +1,5 @@
 import { convertToPCM16, resampleAudio } from '../../assets/js/audio-processor.js';
-import { escapeHtml, downloadBlob } from '../../assets/js/utils.js';
+import { escapeHtml, downloadBlob, postJsonWithAuth } from '../../assets/js/utils.js';
 
 let ws = null;
 let mediaStream = null;
@@ -338,6 +338,8 @@ async function triggerFinalProcessing() {
   console.warn('Using streaming transcription (final processing timed out or failed)');
   downloadSection.style.display = 'block';
   liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. Using streaming results.</span>';
+
+  await writeStreamingHistory();
 }
 
 async function displayFinalTranscription(result) {
@@ -393,6 +395,8 @@ async function displayFinalTranscription(result) {
         liveCaption.innerHTML = '<span style="opacity: 0.5;">All processing complete. Download your transcript below.</span>';
       }, 3000);
 
+      await writeStreamingHistory();
+
     } else {
       // Fallback - show download with current data
       downloadSection.style.display = 'block';
@@ -404,6 +408,26 @@ async function displayFinalTranscription(result) {
     downloadSection.style.display = 'block';
     liveCaption.innerHTML = '<span style="opacity: 0.5;">Processing complete. See translations below.</span>';
   }
+}
+
+async function writeStreamingHistory() {
+  if (!sessionId) return;
+
+  const finalTranscript = finalizedSegments.map((seg) => seg.original).join(' ').trim();
+  const finalTranslation = finalizedSegments
+    .map((seg) => seg.translation || seg.original)
+    .join(' ')
+    .trim();
+
+  await postJsonWithAuth('/api/history/streaming', {
+    sessionId: sessionId,
+    sourceLang: sourceLang.value,
+    targetLang: targetLang.value,
+    totalChunks: finalizedSegments.length,
+    totalDurationSeconds: startTime ? Math.round((Date.now() - startTime) / 1000) : 0,
+    finalTranscript: finalTranscript,
+    finalTranslation: finalTranslation
+  });
 }
 
 function updateDuration() {

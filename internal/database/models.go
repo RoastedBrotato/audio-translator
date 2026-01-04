@@ -12,11 +12,14 @@ import (
 
 // User represents a registered user
 type User struct {
-	ID                int       `json:"id"`
-	Username          string    `json:"username"`
-	DisplayName       string    `json:"displayName"`
-	PreferredLanguage string    `json:"preferredLanguage"`
-	CreatedAt         time.Time `json:"createdAt"`
+	ID                int        `json:"id"`
+	Username          string     `json:"username"`
+	DisplayName       string     `json:"displayName"`
+	PreferredLanguage string     `json:"preferredLanguage"`
+	Email             string     `json:"email,omitempty"`
+	EmailVerified     bool       `json:"emailVerified"`
+	LastLogin         *time.Time `json:"lastLogin,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
 }
 
 // Meeting represents a meeting room
@@ -76,19 +79,31 @@ func CreateUser(username, displayName, preferredLang string) (*User, error) {
 	query := `
 		INSERT INTO users (username, display_name, preferred_language)
 		VALUES ($1, $2, $3)
-		RETURNING id, username, display_name, preferred_language, created_at
+		RETURNING id, username, display_name, preferred_language, email, email_verified, last_login, created_at
 	`
 
 	var user User
+	var email sql.NullString
+	var lastLogin sql.NullTime
 	err := DB.QueryRow(query, username, displayName, preferredLang).Scan(
 		&user.ID,
 		&user.Username,
 		&user.DisplayName,
 		&user.PreferredLanguage,
+		&email,
+		&user.EmailVerified,
+		&lastLogin,
 		&user.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	if email.Valid {
+		user.Email = email.String
+	}
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
 	}
 
 	return &user, nil
@@ -97,17 +112,22 @@ func CreateUser(username, displayName, preferredLang string) (*User, error) {
 // GetUserByUsername retrieves a user by username
 func GetUserByUsername(username string) (*User, error) {
 	query := `
-		SELECT id, username, display_name, preferred_language, created_at
+		SELECT id, username, display_name, preferred_language, email, email_verified, last_login, created_at
 		FROM users
 		WHERE username = $1
 	`
 
 	var user User
+	var email sql.NullString
+	var lastLogin sql.NullTime
 	err := DB.QueryRow(query, username).Scan(
 		&user.ID,
 		&user.Username,
 		&user.DisplayName,
 		&user.PreferredLanguage,
+		&email,
+		&user.EmailVerified,
+		&lastLogin,
 		&user.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -115,6 +135,13 @@ func GetUserByUsername(username string) (*User, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if email.Valid {
+		user.Email = email.String
+	}
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
 	}
 
 	return &user, nil

@@ -1,4 +1,5 @@
 import { formatDuration } from '../../assets/js/audio-processor.js';
+import { getAccessToken, postJsonWithAuth } from '../../assets/js/utils.js';
 
 // Video upload and processing script
 const uploadArea = document.getElementById('uploadArea');
@@ -27,6 +28,7 @@ const voiceCloneWarning = document.getElementById('voiceCloneWarning');
 let selectedFile = null;
 let videoPath = null;
 let progressWS = null;
+let currentSessionId = null;
 
 // Languages supported by voice cloning (XTTS model)
 const voiceCloningSupportedLanguages = [
@@ -130,6 +132,11 @@ function showError(message) {
 // Upload button click
 uploadBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
+    await startUpload(false);
+});
+
+async function startUpload(forceProcessing) {
+    if (!selectedFile) return;
     
     // Disable buttons during processing
     uploadBtn.disabled = true;
@@ -154,10 +161,20 @@ uploadBtn.addEventListener('click', async () => {
         formData.append('targetLang', targetLang.value);
         formData.append('generateTTS', generateTTS.checked ? 'true' : 'false');
         formData.append('cloneVoice', cloneVoice.checked ? 'true' : 'false');
+        if (forceProcessing) {
+            formData.append('force', 'true');
+        }
         
         // Upload video and get session ID
+        const headers = {};
+        const token = getAccessToken();
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+
         const response = await fetch('/upload', {
             method: 'POST',
+            headers,
             body: formData
         });
         
@@ -166,6 +183,8 @@ uploadBtn.addEventListener('click', async () => {
         if (!data.success || !data.sessionId) {
             throw new Error(data.error || 'Failed to start processing');
         }
+
+        currentSessionId = data.sessionId;
         
         // Connect to progress WebSocket
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -176,7 +195,7 @@ uploadBtn.addEventListener('click', async () => {
             console.log('Progress WebSocket connected');
         };
         
-        progressWS.onmessage = (event) => {
+        progressWS.onmessage = async (event) => {
             const update = JSON.parse(event.data);
             console.log('Progress update:', update);
             
@@ -202,6 +221,21 @@ uploadBtn.addEventListener('click', async () => {
                 
                 // Display results if available
                 if (update.results) {
+                    if (update.results.existing) {
+                        const reuse = confirm('We found a previous upload for this file. Use existing result?');
+                        if (!reuse) {
+                            progressContainer.classList.remove('show');
+                            uploadBtn.disabled = false;
+                            clearBtn.disabled = false;
+                            await startUpload(true);
+                            return;
+                        }
+                        progressContainer.classList.remove('show');
+                        uploadBtn.disabled = false;
+                        clearBtn.disabled = false;
+                        showError('Using existing upload. No new processing was done.');
+                        return;
+                    }
                     transcription.textContent = update.results.transcription || 'No transcription available';
                     translation.textContent = update.results.translation || 'No translation available';
                     duration.textContent = update.results.duration ? formatDuration(update.results.duration) : 'Unknown';
@@ -217,6 +251,21 @@ uploadBtn.addEventListener('click', async () => {
                     // Show detected language if available
                     if (update.results.detectedLang) {
                         console.log('Detected language:', update.results.detectedLang);
+                    }
+
+                    if (!update.results.existing) {
+                        await postJsonWithAuth('/api/history/video', {
+                        sessionId: currentSessionId,
+                        filename: selectedFile ? selectedFile.name : 'upload',
+                        transcription: update.results.transcription || '',
+                        translation: update.results.translation || '',
+                        videoPath: update.results.minioVideoKey || '',
+                        audioPath: update.results.minioAudioKey || '',
+                        ttsPath: update.results.minioTtsKey || '',
+                        sourceLang: sourceLang.value,
+                        targetLang: targetLang.value,
+                        durationSeconds: update.results.duration ? Math.round(update.results.duration) : 0
+                        });
                     }
                 }
                 
@@ -258,7 +307,7 @@ uploadBtn.addEventListener('click', async () => {
             progressWS = null;
         }
     }
-});
+}
 
 // Clear button
 clearBtn.addEventListener('click', () => {

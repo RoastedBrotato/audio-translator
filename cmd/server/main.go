@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,10 +20,12 @@ import (
 	"github.com/gorilla/websocket"
 
 	"realtime-caption-translator/internal/asr"
+	"realtime-caption-translator/internal/auth"
 	"realtime-caption-translator/internal/database"
 	"realtime-caption-translator/internal/meeting"
 	"realtime-caption-translator/internal/progress"
 	"realtime-caption-translator/internal/session"
+	"realtime-caption-translator/internal/storage"
 	"realtime-caption-translator/internal/translate"
 	"realtime-caption-translator/internal/tts"
 	"realtime-caption-translator/internal/video"
@@ -63,7 +69,388 @@ type videoUploadResponse struct {
 	Error         string  `json:"error,omitempty"`
 }
 
-func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, ttsClient *tts.Client, progressMgr *progress.Manager) {
+type authResponse struct {
+	Success bool           `json:"success"`
+	User    *database.User `json:"user,omitempty"`
+	Error   string         `json:"error,omitempty"`
+}
+
+func handleKeycloakLogin(verifier *auth.KeycloakVerifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if verifier == nil {
+			http.Error(w, "Keycloak auth not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		tokenStr, err := extractBearerToken(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		claims, err := verifier.VerifyToken(r.Context(), tokenStr)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := upsertUserFromClaims(claims)
+		if err != nil {
+			log.Printf("Keycloak upsert failed: %v", err)
+			http.Error(w, "Failed to persist user", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(authResponse{
+			Success: true,
+			User:    user,
+		})
+	}
+}
+
+type historyVideoRequest struct {
+	SessionID       string     `json:"sessionId"`
+	Filename        string     `json:"filename"`
+	Transcription   string     `json:"transcription,omitempty"`
+	Translation     string     `json:"translation,omitempty"`
+	VideoPath       string     `json:"videoPath,omitempty"`
+	AudioPath       string     `json:"audioPath,omitempty"`
+	TTSPath         string     `json:"ttsPath,omitempty"`
+	SourceLang      string     `json:"sourceLang,omitempty"`
+	TargetLang      string     `json:"targetLang,omitempty"`
+	DurationSeconds int        `json:"durationSeconds,omitempty"`
+	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
+}
+
+type historyAudioRequest struct {
+	SessionID      string          `json:"sessionId"`
+	Filename       string          `json:"filename"`
+	Transcription  string          `json:"transcription,omitempty"`
+	Translation    string          `json:"translation,omitempty"`
+	AudioPath      string          `json:"audioPath,omitempty"`
+	SourceLang     string          `json:"sourceLang,omitempty"`
+	TargetLang     string          `json:"targetLang,omitempty"`
+	HasDiarization bool            `json:"hasDiarization,omitempty"`
+	NumSpeakers    int             `json:"numSpeakers,omitempty"`
+	Segments       json.RawMessage `json:"segments,omitempty"`
+}
+
+type historyStreamingRequest struct {
+	SessionID            string `json:"sessionId"`
+	SourceLang           string `json:"sourceLang,omitempty"`
+	TargetLang           string `json:"targetLang,omitempty"`
+	TotalChunks          int    `json:"totalChunks,omitempty"`
+	TotalDurationSeconds int    `json:"totalDurationSeconds,omitempty"`
+	FinalTranscript      string `json:"finalTranscript,omitempty"`
+	FinalTranslation     string `json:"finalTranslation,omitempty"`
+}
+
+type userFileRequest struct {
+	SessionType   string     `json:"sessionType"`
+	SessionID     string     `json:"sessionId"`
+	BucketName    string     `json:"bucketName"`
+	FileKey       string     `json:"fileKey"`
+	ContentHash   string     `json:"contentHash,omitempty"`
+	Etag          string     `json:"etag,omitempty"`
+	MimeType      string     `json:"mimeType,omitempty"`
+	FileSizeBytes int64      `json:"fileSizeBytes,omitempty"`
+	AccessedAt    *time.Time `json:"accessedAt,omitempty"`
+}
+
+type historyResponse struct {
+	Success bool   `json:"success"`
+	ID      int    `json:"id,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func handleCreateVideoHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		user, ok := authenticateUserFromRequest(verifier, w, r)
+		if !ok {
+			return
+		}
+
+		var req historyVideoRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		id, err := database.CreateUserVideoSession(user.ID, database.UserVideoSessionInput{
+			SessionID:       req.SessionID,
+			Filename:        req.Filename,
+			Transcription:   req.Transcription,
+			Translation:     req.Translation,
+			VideoPath:       req.VideoPath,
+			AudioPath:       req.AudioPath,
+			TTSPath:         req.TTSPath,
+			SourceLang:      req.SourceLang,
+			TargetLang:      req.TargetLang,
+			DurationSeconds: req.DurationSeconds,
+			ExpiresAt:       req.ExpiresAt,
+		})
+		if err != nil {
+			log.Printf("Create video history failed: %v", err)
+			http.Error(w, "Failed to store history", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, historyResponse{Success: true, ID: id})
+	}
+}
+
+func handleCreateAudioHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		user, ok := authenticateUserFromRequest(verifier, w, r)
+		if !ok {
+			return
+		}
+
+		var req historyAudioRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		hasDiarization := req.HasDiarization || len(req.Segments) > 0
+
+		id, err := database.CreateUserAudioSession(user.ID, database.UserAudioSessionInput{
+			SessionID:      req.SessionID,
+			Filename:       req.Filename,
+			Transcription:  req.Transcription,
+			Translation:    req.Translation,
+			AudioPath:      req.AudioPath,
+			SourceLang:     req.SourceLang,
+			TargetLang:     req.TargetLang,
+			HasDiarization: hasDiarization,
+			NumSpeakers:    req.NumSpeakers,
+			Segments:       req.Segments,
+		})
+		if err != nil {
+			log.Printf("Create audio history failed: %v", err)
+			http.Error(w, "Failed to store history", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, historyResponse{Success: true, ID: id})
+	}
+}
+
+func handleCreateStreamingHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		user, ok := authenticateUserFromRequest(verifier, w, r)
+		if !ok {
+			return
+		}
+
+		var req historyStreamingRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		id, err := database.CreateUserStreamingSession(user.ID, database.UserStreamingSessionInput{
+			SessionID:            req.SessionID,
+			SourceLang:           req.SourceLang,
+			TargetLang:           req.TargetLang,
+			TotalChunks:          req.TotalChunks,
+			TotalDurationSeconds: req.TotalDurationSeconds,
+			FinalTranscript:      req.FinalTranscript,
+			FinalTranslation:     req.FinalTranslation,
+		})
+		if err != nil {
+			log.Printf("Create streaming history failed: %v", err)
+			http.Error(w, "Failed to store history", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, historyResponse{Success: true, ID: id})
+	}
+}
+
+func handleCreateUserFile(verifier *auth.KeycloakVerifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		user, ok := authenticateUserFromRequest(verifier, w, r)
+		if !ok {
+			return
+		}
+
+		var req userFileRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		id, err := database.CreateUserFile(&user.ID, database.UserFileInput{
+			SessionType:   req.SessionType,
+			SessionID:     req.SessionID,
+			BucketName:    req.BucketName,
+			FileKey:       req.FileKey,
+			ContentHash:   req.ContentHash,
+			Etag:          req.Etag,
+			MimeType:      req.MimeType,
+			FileSizeBytes: req.FileSizeBytes,
+			AccessedAt:    req.AccessedAt,
+		})
+		if err != nil {
+			log.Printf("Create user file failed: %v", err)
+			http.Error(w, "Failed to store file metadata", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, historyResponse{Success: true, ID: id})
+	}
+}
+
+func extractBearerToken(r *http.Request) (string, error) {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader == "" {
+		return "", fmt.Errorf("Authorization header missing")
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return "", fmt.Errorf("Authorization header must be Bearer token")
+	}
+
+	token := strings.TrimSpace(parts[1])
+	if token == "" {
+		return "", fmt.Errorf("Bearer token is empty")
+	}
+
+	return token, nil
+}
+
+func authenticateUserFromRequest(verifier *auth.KeycloakVerifier, w http.ResponseWriter, r *http.Request) (*database.User, bool) {
+	if verifier == nil {
+		http.Error(w, "Keycloak auth not configured", http.StatusServiceUnavailable)
+		return nil, false
+	}
+
+	tokenStr, err := extractBearerToken(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return nil, false
+	}
+
+	claims, err := verifier.VerifyToken(r.Context(), tokenStr)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return nil, false
+	}
+
+	user, err := upsertUserFromClaims(claims)
+	if err != nil {
+		log.Printf("Keycloak upsert failed: %v", err)
+		http.Error(w, "Failed to persist user", http.StatusInternalServerError)
+		return nil, false
+	}
+
+	return user, true
+}
+
+func maybeAuthenticateUserFromRequest(verifier *auth.KeycloakVerifier, r *http.Request) (*database.User, error) {
+	if verifier == nil {
+		return nil, nil
+	}
+
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader == "" {
+		return nil, nil
+	}
+
+	tokenStr, err := extractBearerToken(r)
+	if err != nil {
+		return nil, err
+	}
+
+	claims, err := verifier.VerifyToken(r.Context(), tokenStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return upsertUserFromClaims(claims)
+}
+
+func upsertUserFromClaims(claims map[string]interface{}) (*database.User, error) {
+	sub, _ := claims["sub"].(string)
+	preferredUsername, _ := claims["preferred_username"].(string)
+	displayName, _ := claims["name"].(string)
+	email, _ := claims["email"].(string)
+	emailVerified := parseEmailVerified(claims["email_verified"])
+
+	return database.UpsertKeycloakUser(sub, preferredUsername, email, emailVerified, displayName)
+}
+
+func parseEmailVerified(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true")
+	default:
+		return false
+	}
+}
+
+func writeJSON(w http.ResponseWriter, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payload)
+}
+
+func storageDetectContentType(name string) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	if contentType := mime.TypeByExtension(ext); contentType != "" {
+		return contentType
+	}
+	return "application/octet-stream"
+}
+
+func computeFileHash(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, ttsClient *tts.Client, progressMgr *progress.Manager, minioClient *storage.MinioClient, verifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -109,6 +496,17 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 
 	// Check if user wants voice cloning
 	cloneVoice := r.FormValue("cloneVoice") == "true"
+	forceProcessing := r.FormValue("force") == "true"
+
+	user, err := maybeAuthenticateUserFromRequest(verifier, r)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+	var userID *int
+	if user != nil {
+		userID = &user.ID
+	}
 
 	// Send initial response with session ID immediately
 	w.Header().Set("Content-Type", "application/json")
@@ -147,6 +545,42 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 			return
 		}
 		outFile.Close()
+
+		var contentHash string
+		if userID != nil {
+			hashValue, err := computeFileHash(tempVideoPath)
+			if err != nil {
+				log.Printf("Failed to hash video: %v", err)
+			} else {
+				contentHash = hashValue
+			}
+		}
+
+		if userID != nil && contentHash != "" && !forceProcessing {
+			match, err := database.FindUserFileByHash(*userID, "video", contentHash)
+			if err != nil {
+				log.Printf("Failed to lookup video hash: %v", err)
+			} else if match != nil {
+				results := map[string]interface{}{
+					"existing":          true,
+					"existingSessionId": match.SessionID,
+					"existingFileKey":   match.FileKey,
+				}
+				if sessionData, err := database.GetUserVideoSessionBySessionID(*userID, match.SessionID); err != nil {
+					log.Printf("Failed to load existing video session: %v", err)
+				} else if sessionData != nil {
+					results["transcription"] = sessionData.Transcription
+					results["translation"] = sessionData.Translation
+					results["duration"] = float64(sessionData.DurationSeconds)
+					results["minioVideoKey"] = sessionData.VideoPath
+					results["minioAudioKey"] = sessionData.AudioPath
+					results["minioTtsKey"] = sessionData.TTSPath
+				}
+
+				tracker.CompleteWithResults("Existing upload found", results)
+				return
+			}
+		}
 
 		tracker.Update("extraction", 25, "Extracting audio from video...")
 
@@ -259,12 +693,87 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 			tracker.Update("processing", 95, "Video processing complete")
 		}
 
+		var minioOriginalKey string
+		var minioAudioKey string
+		var minioTTSKey string
+
+		if minioClient != nil && minioClient.Enabled() {
+			ctx := context.Background()
+
+			originalKey := storage.SafeObjectKey("videos", sessionID, fmt.Sprintf("original_%s", header.Filename))
+			etag, size, err := minioClient.UploadFile(ctx, originalKey, tempVideoPath, "")
+			if err != nil {
+				log.Printf("MinIO upload failed (original video): %v", err)
+			} else {
+				minioOriginalKey = originalKey
+				if userID != nil {
+					_, _ = database.CreateUserFile(userID, database.UserFileInput{
+						SessionType:   "video",
+						SessionID:     sessionID,
+						BucketName:    minioClient.Bucket(),
+						FileKey:       originalKey,
+						ContentHash:   contentHash,
+						Etag:          etag,
+						MimeType:      storageDetectContentType(header.Filename),
+						FileSizeBytes: size,
+					})
+				}
+			}
+
+			audioKey := storage.SafeObjectKey("videos", sessionID, "extracted_audio.wav")
+			etag, size, err = minioClient.UploadBytes(ctx, audioKey, audioResult.AudioData, "audio/wav")
+			if err != nil {
+				log.Printf("MinIO upload failed (extracted audio): %v", err)
+			} else {
+				minioAudioKey = audioKey
+				if userID != nil {
+					_, _ = database.CreateUserFile(userID, database.UserFileInput{
+						SessionType:   "video",
+						SessionID:     sessionID,
+						BucketName:    minioClient.Bucket(),
+						FileKey:       audioKey,
+						Etag:          etag,
+						MimeType:      "audio/wav",
+						FileSizeBytes: size,
+					})
+				}
+			}
+
+			if generateTTS && videoPath != "" {
+				translatedKey := storage.SafeObjectKey("videos", sessionID, fmt.Sprintf("translated_%s", filepath.Base(videoPath)))
+				etag, size, err = minioClient.UploadFile(ctx, translatedKey, filepath.Join(tempDir, videoPath), "")
+				if err != nil {
+					log.Printf("MinIO upload failed (translated video): %v", err)
+				} else {
+					minioTTSKey = translatedKey
+					if userID != nil {
+						_, _ = database.CreateUserFile(userID, database.UserFileInput{
+							SessionType:   "video",
+							SessionID:     sessionID,
+							BucketName:    minioClient.Bucket(),
+							FileKey:       translatedKey,
+							Etag:          etag,
+							MimeType:      storageDetectContentType(videoPath),
+							FileSizeBytes: size,
+						})
+					}
+				}
+			}
+		}
+
 		// Send completion with results
 		results := map[string]interface{}{
 			"transcription": transcription,
 			"translation":   translation,
 			"duration":      audioResult.Duration,
 			"videoPath":     videoPath,
+			"minioBucket":   "",
+			"minioVideoKey": minioOriginalKey,
+			"minioAudioKey": minioAudioKey,
+			"minioTtsKey":   minioTTSKey,
+		}
+		if minioClient != nil && minioClient.Enabled() {
+			results["minioBucket"] = minioClient.Bucket()
 		}
 		if detectedLang != "" {
 			results["detectedLang"] = detectedLang
@@ -274,7 +783,7 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 	}() // End of goroutine
 }
 
-func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, progressMgr *progress.Manager) {
+func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, progressMgr *progress.Manager, minioClient *storage.MinioClient, verifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -318,6 +827,17 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 	// Check if user wants speaker diarization
 	enableDiarization := r.FormValue("enableDiarization") == "true"
 	enhanceAudio := r.FormValue("enhanceAudio") == "true"
+	forceProcessing := r.FormValue("force") == "true"
+
+	user, err := maybeAuthenticateUserFromRequest(verifier, r)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+	var userID *int
+	if user != nil {
+		userID = &user.ID
+	}
 
 	// Send initial response with session ID immediately
 	w.Header().Set("Content-Type", "application/json")
@@ -356,6 +876,41 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 			return
 		}
 		outFile.Close()
+
+		var contentHash string
+		if userID != nil {
+			hashValue, err := computeFileHash(tempAudioPath)
+			if err != nil {
+				log.Printf("Failed to hash audio: %v", err)
+			} else {
+				contentHash = hashValue
+			}
+		}
+
+		if userID != nil && contentHash != "" && !forceProcessing {
+			match, err := database.FindUserFileByHash(*userID, "audio", contentHash)
+			if err != nil {
+				log.Printf("Failed to lookup audio hash: %v", err)
+			} else if match != nil {
+				results := map[string]interface{}{
+					"existing":          true,
+					"existingSessionId": match.SessionID,
+					"existingFileKey":   match.FileKey,
+				}
+				if sessionData, err := database.GetUserAudioSessionBySessionID(*userID, match.SessionID); err != nil {
+					log.Printf("Failed to load existing audio session: %v", err)
+				} else if sessionData != nil {
+					results["transcription"] = sessionData.Transcription
+					results["translation"] = sessionData.Translation
+					results["minioAudioKey"] = sessionData.AudioPath
+					results["num_speakers"] = sessionData.NumSpeakers
+					results["segments"] = sessionData.Segments
+				}
+
+				tracker.CompleteWithResults("Existing upload found", results)
+				return
+			}
+		}
 
 		if enhanceAudio {
 			tracker.Update("processing", 30, "Cleaning up audio and converting to WAV...")
@@ -475,10 +1030,39 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 		log.Printf("Translation complete")
 		tracker.Update("translation", 90, "Translation complete")
 
+		var minioAudioKey string
+		if minioClient != nil && minioClient.Enabled() {
+			ctx := context.Background()
+			audioKey := storage.SafeObjectKey("audio", sessionID, fmt.Sprintf("original_%s", header.Filename))
+			etag, size, err := minioClient.UploadFile(ctx, audioKey, tempAudioPath, "")
+			if err != nil {
+				log.Printf("MinIO upload failed (audio): %v", err)
+			} else {
+				minioAudioKey = audioKey
+				if userID != nil {
+					_, _ = database.CreateUserFile(userID, database.UserFileInput{
+						SessionType:   "audio",
+						SessionID:     sessionID,
+						BucketName:    minioClient.Bucket(),
+						FileKey:       audioKey,
+						ContentHash:   contentHash,
+						Etag:          etag,
+						MimeType:      storageDetectContentType(header.Filename),
+						FileSizeBytes: size,
+					})
+				}
+			}
+		}
+
 		// Send completion with results
 		results := map[string]interface{}{
 			"transcription": transcription,
 			"translation":   translation,
+			"minioBucket":   "",
+			"minioAudioKey": minioAudioKey,
+		}
+		if minioClient != nil && minioClient.Enabled() {
+			results["minioBucket"] = minioClient.Bucket()
 		}
 		if detectedLang != "" {
 			results["detectedLang"] = detectedLang
@@ -1260,6 +1844,16 @@ func main() {
 	// Create TTS client
 	ttsClient := tts.New("http://127.0.0.1:8005")
 
+	keycloakVerifier, err := auth.NewKeycloakVerifierFromEnv()
+	if err != nil {
+		log.Printf("Keycloak auth disabled: %v", err)
+	}
+
+	minioClient, err := storage.NewMinioFromEnv()
+	if err != nil {
+		log.Printf("MinIO disabled: %v", err)
+	}
+
 	// Static file server
 	http.Handle("/", http.FileServer(http.Dir("./web")))
 
@@ -1299,6 +1893,11 @@ func main() {
 
 	http.HandleFunc("/api/speaker-profiles/cleanup", handleSpeakerProfileCleanup)
 	http.HandleFunc("/api/speaker-profiles/", handleSpeakerProfiles)
+	http.HandleFunc("/api/auth/keycloak", handleKeycloakLogin(keycloakVerifier))
+	http.HandleFunc("/api/history/video", handleCreateVideoHistory(keycloakVerifier))
+	http.HandleFunc("/api/history/audio", handleCreateAudioHistory(keycloakVerifier))
+	http.HandleFunc("/api/history/streaming", handleCreateStreamingHistory(keycloakVerifier))
+	http.HandleFunc("/api/files", handleCreateUserFile(keycloakVerifier))
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -1309,11 +1908,11 @@ func main() {
 	})
 
 	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
-		handleVideoUpload(w, r, videoProcessor, asrClient, translator, ttsClient, progressMgr)
+		handleVideoUpload(w, r, videoProcessor, asrClient, translator, ttsClient, progressMgr, minioClient, keycloakVerifier)
 	})
 
 	http.HandleFunc("/upload-audio", func(w http.ResponseWriter, r *http.Request) {
-		handleAudioUpload(w, r, videoProcessor, asrClient, translator, progressMgr)
+		handleAudioUpload(w, r, videoProcessor, asrClient, translator, progressMgr, minioClient, keycloakVerifier)
 	})
 
 	// Meeting API endpoints

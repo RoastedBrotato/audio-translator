@@ -1,3 +1,5 @@
+import { initAuth, login, logout, getAuthProfile } from '/assets/js/auth.js';
+
 // Unified navigation bar for all pages
 function createNavbar() {
   const navbar = document.createElement('nav');
@@ -32,10 +34,14 @@ function createNavbar() {
           🧭 How It Works
         </a>
       </div>
-      <button class="theme-toggle" type="button" aria-label="Toggle theme">
+      <div class="navbar-actions">
+        <div class="auth-status" id="authStatus"></div>
+        <button class="auth-button" type="button" id="authButton">Sign in</button>
+        <button class="theme-toggle" type="button" aria-label="Toggle theme">
         <span class="theme-toggle-icon" aria-hidden="true">🌙</span>
         <span class="theme-toggle-label">Dark</span>
-      </button>
+        </button>
+      </div>
     </div>
   `;
 
@@ -53,6 +59,7 @@ function createNavbar() {
   document.body.appendChild(contentWrapper);
 
   setupThemeToggle();
+  setupAuthControls();
 }
 
 function setupThemeToggle() {
@@ -84,6 +91,36 @@ function updateThemeToggle(toggle, theme) {
   } else {
     icon.textContent = '🌙';
     label.textContent = 'Dark';
+  }
+}
+
+async function setupAuthControls() {
+  const authButton = document.getElementById('authButton');
+  const authStatus = document.getElementById('authStatus');
+  if (!authButton || !authStatus) return;
+
+  const profile = await initAuth();
+  updateAuthUI(profile, authButton, authStatus);
+
+  authButton.addEventListener('click', () => {
+    if (authButton.dataset.authenticated === 'true') {
+      logout();
+    } else {
+      login();
+    }
+  });
+}
+
+function updateAuthUI(profile, authButton, authStatus) {
+  if (profile) {
+    authButton.textContent = 'Sign out';
+    authButton.dataset.authenticated = 'true';
+    const label = profile.preferred_username || profile.name || profile.email || 'Signed in';
+    authStatus.textContent = label;
+  } else {
+    authButton.textContent = 'Sign in';
+    authButton.dataset.authenticated = 'false';
+    authStatus.textContent = 'Guest';
   }
 }
 

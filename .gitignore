@@ -20,6 +20,8 @@ build/
 *.test
 *.out
 go.work
+bin/
+.gocache/
 
 # Temporary files
 temp/
