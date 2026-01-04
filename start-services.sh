@@ -111,6 +111,10 @@ fi
 go build -o "$SERVER_BIN" ./cmd/server
 
 echo "▶️  Starting Go server on http://localhost:8080"
+# Load environment variables from .env file
+set -a
+source .env
+set +a
 nohup "$SERVER_BIN" > "$SERVER_LOG" 2>&1 &
 echo $! > "$SERVER_PID_FILE"
 
