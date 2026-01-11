@@ -1,3 +1,4 @@
+
 # Streaming Caption System Architecture
 
 ## Overview

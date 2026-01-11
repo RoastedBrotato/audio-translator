@@ -370,6 +370,43 @@ func GetActiveParticipants(meetingID string) ([]MeetingParticipant, error) {
 	return participants, nil
 }
 
+// GetMeetingParticipants retrieves all participants in a meeting.
+func GetMeetingParticipants(meetingID string) ([]MeetingParticipant, error) {
+	query := `
+		SELECT id, meeting_id, user_id, participant_name, target_language, joined_at, left_at, is_active
+		FROM meeting_participants
+		WHERE meeting_id = $1
+		ORDER BY joined_at ASC
+	`
+
+	rows, err := DB.Query(query, meetingID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get participants: %w", err)
+	}
+	defer rows.Close()
+
+	var participants []MeetingParticipant
+	for rows.Next() {
+		var p MeetingParticipant
+		err := rows.Scan(
+			&p.ID,
+			&p.MeetingID,
+			&p.UserID,
+			&p.ParticipantName,
+			&p.TargetLanguage,
+			&p.JoinedAt,
+			&p.LeftAt,
+			&p.IsActive,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan participant: %w", err)
+		}
+		participants = append(participants, p)
+	}
+
+	return participants, rows.Err()
+}
+
 // GetParticipantByID retrieves a participant by ID
 func GetParticipantByID(participantID int) (*MeetingParticipant, error) {
 	query := `

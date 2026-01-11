@@ -223,6 +223,27 @@
 
         checkMicrophonePermission();
 
+        function getAccessToken() {
+            const authRaw = localStorage.getItem('keycloak_auth');
+            if (authRaw) {
+                try {
+                    const auth = JSON.parse(authRaw);
+                    if (auth && auth.access_token) {
+                        return auth.access_token;
+                    }
+                } catch (err) {
+                    console.warn('Invalid auth storage', err);
+                }
+            }
+
+            return (
+                localStorage.getItem('keycloak_access_token') ||
+                sessionStorage.getItem('keycloak_access_token') ||
+                localStorage.getItem('access_token') ||
+                sessionStorage.getItem('access_token')
+            );
+        }
+
         // Handle form submission
         document.getElementById('joinForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -255,11 +276,17 @@
 
             try {
                 // Join meeting via API
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                const token = getAccessToken();
+                if (token) {
+                    headers.Authorization = `Bearer ${token}`;
+                }
+
                 const response = await fetch(`/api/meetings/${roomCode}/join`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers,
                     body: JSON.stringify({
                         participantName: participantName,
                         targetLanguage: targetLanguage

@@ -4,7 +4,7 @@
  */
 
 // Import shared utilities
-import { convertToPCM16, getAudioLevel } from '/assets/js/audio-processor.js';
+import { convertToPCM16, getAudioLevel, resampleAudio } from '/assets/js/audio-processor.js';
 import { getLanguageName, escapeHtml } from '/assets/js/utils.js';
 
 // Meeting WebSocket Client
@@ -363,7 +363,14 @@ async function refreshSnapshotLanguages() {
 
 function setupAudioStreaming(stream) {
     try {
-        audioContext = new AudioContext({ sampleRate: 16000 });
+        // Create the AudioContext at the stream's native rate when available.
+        const track = stream.getAudioTracks()[0];
+        const settings = track && typeof track.getSettings === 'function' ? track.getSettings() : {};
+        const streamSampleRate = Number.isFinite(settings.sampleRate) ? settings.sampleRate : null;
+        audioContext = streamSampleRate ? new AudioContext({ sampleRate: streamSampleRate }) : new AudioContext();
+        const nativeSampleRate = audioContext.sampleRate;
+        console.log(`Native sample rate: ${nativeSampleRate}`);
+
         audioSource = audioContext.createMediaStreamSource(stream);
         audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
 
@@ -376,7 +383,10 @@ function setupAudioStreaming(stream) {
             }
 
             const inputData = e.inputBuffer.getChannelData(0);
-            const pcm16 = convertToPCM16(inputData);
+
+            // Resample to 16kHz before sending
+            const resampled = resampleAudio(inputData, nativeSampleRate, 16000);
+            const pcm16 = convertToPCM16(resampled);
 
             // Send binary audio data
             meetingWs.send(pcm16);

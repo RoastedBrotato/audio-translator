@@ -22,8 +22,11 @@ import (
 	"realtime-caption-translator/internal/asr"
 	"realtime-caption-translator/internal/auth"
 	"realtime-caption-translator/internal/database"
+	"realtime-caption-translator/internal/embedding"
+	"realtime-caption-translator/internal/llm"
 	"realtime-caption-translator/internal/meeting"
 	"realtime-caption-translator/internal/progress"
+	"realtime-caption-translator/internal/rag"
 	"realtime-caption-translator/internal/session"
 	"realtime-caption-translator/internal/storage"
 	"realtime-caption-translator/internal/translate"
@@ -1085,7 +1088,7 @@ func min(a, b int) int {
 
 // Meeting API Handlers
 
-func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
+func handleCreateMeeting(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1114,8 +1117,18 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, err := maybeAuthenticateUserFromRequest(keycloakVerifier, r)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+	var userID *int
+	if user != nil {
+		userID = &user.ID
+	}
+
 	// Create meeting in database
-	meeting, err := database.CreateMeeting(nil, req.Mode) // Anonymous meeting (no creator)
+	meeting, err := database.CreateMeeting(userID, req.Mode)
 	if err != nil {
 		log.Printf("Error creating meeting: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1138,7 +1151,7 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
+func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1202,8 +1215,18 @@ func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meet
 		return
 	}
 
+	user, err := maybeAuthenticateUserFromRequest(keycloakVerifier, r)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+	var userID *int
+	if user != nil {
+		userID = &user.ID
+	}
+
 	// Add participant to database
-	participant, err := database.AddParticipant(mtg.ID, nil, req.ParticipantName, req.TargetLanguage)
+	participant, err := database.AddParticipant(mtg.ID, userID, req.ParticipantName, req.TargetLanguage)
 	if err != nil {
 		log.Printf("Error adding participant: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1493,7 +1516,7 @@ func handleListTranscriptSnapshots(w http.ResponseWriter, r *http.Request, roomC
 	})
 }
 
-func handleEndMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, roomCode string) {
+func handleEndMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, llmClient *llm.Client, roomCode string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1539,6 +1562,14 @@ func handleEndMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeti
 		return
 	}
 
+	if llmClient != nil {
+		go func() {
+			if err := meeting.GenerateMeetingMinutes(mtg.ID, "en", llmClient); err != nil {
+				log.Printf("Minutes generation failed for meeting %s: %v", mtg.ID, err)
+			}
+		}()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -1564,6 +1595,7 @@ func formatTranscript(entries []meeting.TranscriptEntry) string {
 	return b.String()
 }
 
+
 func getMeetingByCodeOrID(codeOrID string) (*database.Meeting, error) {
 	mtg, err := database.GetMeetingByRoomCode(codeOrID)
 	if err != nil {
@@ -1575,7 +1607,7 @@ func getMeetingByCodeOrID(codeOrID string) (*database.Meeting, error) {
 	return database.GetMeetingByID(codeOrID)
 }
 
-func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
+func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, llmClient *llm.Client, keycloakVerifier *auth.KeycloakVerifier) {
 	// Route based on URL pattern
 	// /api/meetings/{roomCode} - GET meeting info
 	// /api/meetings/{roomCode}/join - POST to join
@@ -1593,7 +1625,7 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 
 	// Check if it's a join request
 	if len(pathParts) >= 5 && pathParts[4] == "join" {
-		handleJoinMeeting(w, r, roomManager)
+		handleJoinMeeting(w, r, roomManager, keycloakVerifier)
 		return
 	}
 
@@ -1617,7 +1649,7 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 
 	// Check if it's an end meeting request
 	if len(pathParts) >= 5 && pathParts[4] == "end" && r.Method == "POST" {
-		handleEndMeeting(w, r, roomManager, pathParts[3])
+		handleEndMeeting(w, r, roomManager, llmClient, pathParts[3])
 		return
 	}
 
@@ -1777,9 +1809,10 @@ func main() {
 	defer database.Close()
 	log.Println("Database connection established")
 
-	// Create meeting room manager
-	roomManager := meeting.NewRoomManager()
-	log.Println("Meeting room manager initialized")
+	// Create RAG processor (will be initialized after embedding client is created)
+	var roomManager *meeting.RoomManager
+
+	log.Println("Meeting room manager will be initialized after RAG components")
 
 	// Optional speaker profile cleanup job
 	if ttlEnv := os.Getenv("SPEAKER_PROFILE_DB_TTL_SECONDS"); ttlEnv != "" {
@@ -1844,6 +1877,17 @@ func main() {
 	// Create TTS client
 	ttsClient := tts.New("http://127.0.0.1:8005")
 
+	// Create RAG components (embedding + LLM clients)
+	embeddingClient := embedding.New("http://127.0.0.1:8006")
+	llmClient := llm.New("http://127.0.0.1:8007")
+	ragProcessor := rag.NewProcessor(embeddingClient)
+	ragQueryEngine := rag.NewQueryEngine(embeddingClient, llmClient)
+	log.Println("RAG components initialized")
+
+	// Initialize RoomManager with RAG processor
+	roomManager = meeting.NewRoomManager(ragProcessor)
+	log.Println("Meeting room manager initialized with RAG support")
+
 	keycloakVerifier, err := auth.NewKeycloakVerifierFromEnv()
 	if err != nil {
 		log.Printf("Keycloak auth disabled: %v", err)
@@ -1898,6 +1942,15 @@ func main() {
 	http.HandleFunc("/api/history/audio", handleCreateAudioHistory(keycloakVerifier))
 	http.HandleFunc("/api/history/streaming", handleCreateStreamingHistory(keycloakVerifier))
 	http.HandleFunc("/api/files", handleCreateUserFile(keycloakVerifier))
+
+	// User meetings history API endpoints
+	http.HandleFunc("/api/users/me/meetings", func(w http.ResponseWriter, r *http.Request) {
+		handleListUserMeetings(w, r, keycloakVerifier)
+	})
+	http.HandleFunc("/api/users/me/meetings/", func(w http.ResponseWriter, r *http.Request) {
+		handleGetUserMeetingDetail(w, r, keycloakVerifier)
+	})
+
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -1916,9 +1969,19 @@ func main() {
 	})
 
 	// Meeting API endpoints
-	http.HandleFunc("/api/meetings", handleCreateMeeting)
+	http.HandleFunc("/api/meetings", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateMeeting(w, r, keycloakVerifier)
+	})
 	http.HandleFunc("/api/meetings/", func(w http.ResponseWriter, r *http.Request) {
-		handleMeetingOperations(w, r, roomManager)
+		handleMeetingOperations(w, r, roomManager, llmClient, keycloakVerifier)
+	})
+
+	// RAG Chat API endpoints
+	http.HandleFunc("/api/chat/sessions", func(w http.ResponseWriter, r *http.Request) {
+		handleChatSessions(w, r, keycloakVerifier)
+	})
+	http.HandleFunc("/api/chat/query", func(w http.ResponseWriter, r *http.Request) {
+		handleChatQuery(w, r, ragQueryEngine, keycloakVerifier)
 	})
 
 	// Recording session management
@@ -2182,4 +2245,222 @@ func translateWithChunking(t translate.Translator, text, sourceLang, targetLang 
 
 	// Fallback to regular translation for other translator types
 	return t.TranslateWithSource(text, sourceLang, targetLang)
+}
+
+// handleChatSessions creates a new chat session for a meeting
+func handleChatSessions(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		MeetingID string `json:"meetingId"`
+		Language  string `json:"language"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.MeetingID == "" || req.Language == "" {
+		http.Error(w, "Missing required fields: meetingId, language", http.StatusBadRequest)
+		return
+	}
+
+	// Optionally extract user ID from auth token
+	var userID *int
+	if keycloakVerifier != nil {
+		tokenStr := r.Header.Get("Authorization")
+		if tokenStr != "" && len(tokenStr) > 7 && tokenStr[:7] == "Bearer " {
+			tokenStr = tokenStr[7:]
+			claims, err := keycloakVerifier.VerifyToken(r.Context(), tokenStr)
+			if err == nil {
+				if preferredUsername, ok := claims["preferred_username"].(string); ok && preferredUsername != "" {
+					user, _ := database.GetUserByUsername(preferredUsername)
+					if user != nil {
+						userID = &user.ID
+					}
+				}
+			}
+		}
+	}
+
+	session, err := database.CreateChatSession(req.MeetingID, req.Language, userID)
+	if err != nil {
+		log.Printf("Failed to create chat session: %v", err)
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(session)
+}
+
+// handleChatQuery performs a RAG query on a meeting transcript
+func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.QueryEngine, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"sessionId"`
+		Question  string `json:"question"`
+		MeetingID string `json:"meetingId"`
+		Language  string `json:"language"`
+		TopK      int    `json:"topK,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.SessionID == "" || req.Question == "" || req.MeetingID == "" || req.Language == "" {
+		http.Error(w, "Missing required fields: sessionId, question, meetingId, language", http.StatusBadRequest)
+		return
+	}
+
+	// Default to top 5 chunks
+	if req.TopK == 0 {
+		req.TopK = 5
+	}
+
+	// Save user question to database
+	userMsg := &database.ChatMessage{
+		SessionID: req.SessionID,
+		Role:      "user",
+		Content:   req.Question,
+	}
+	if err := database.SaveChatMessage(userMsg); err != nil {
+		log.Printf("Failed to save user message: %v", err)
+	}
+
+	// Update session activity
+	database.UpdateChatSessionActivity(req.SessionID)
+
+	// Perform RAG query
+	answer, chunkIDs, err := queryEngine.Query(req.MeetingID, req.Language, req.Question, req.TopK)
+	if err != nil {
+		log.Printf("RAG query failed: %v", err)
+		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Save assistant response to database
+	assistantMsg := &database.ChatMessage{
+		SessionID:       req.SessionID,
+		Role:            "assistant",
+		Content:         answer,
+		ContextChunkIDs: chunkIDs,
+	}
+	if err := database.SaveChatMessage(assistantMsg); err != nil {
+		log.Printf("Failed to save assistant message: %v", err)
+	}
+
+	// Update session activity again
+	database.UpdateChatSessionActivity(req.SessionID)
+
+	response := map[string]interface{}{
+		"answer":    answer,
+		"chunkIds":  chunkIDs,
+		"sessionId": req.SessionID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleListUserMeetings returns all meetings for the authenticated user
+func handleListUserMeetings(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return // Response already sent
+	}
+
+	// Parse query parameters
+	query := r.URL.Query()
+	limit := 20
+	offset := 0
+	status := "all"
+
+	if l := query.Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	if o := query.Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+	if s := query.Get("status"); s == "active" || s == "ended" {
+		status = s
+	}
+
+	meetings, total, err := database.GetUserMeetings(user.ID, limit, offset, status)
+	if err != nil {
+		log.Printf("Failed to get user meetings: %v", err)
+		http.Error(w, "Failed to get meetings", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"meetings": meetings,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+	})
+}
+
+// handleGetUserMeetingDetail returns detailed meeting info
+func handleGetUserMeetingDetail(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return // Response already sent
+	}
+
+	// Extract meeting ID from URL path: /api/users/me/meetings/{meetingId}
+	path := strings.TrimPrefix(r.URL.Path, "/api/users/me/meetings/")
+	meetingID := strings.TrimSuffix(path, "/")
+
+	if meetingID == "" {
+		http.Error(w, "Meeting ID required", http.StatusBadRequest)
+		return
+	}
+
+	detail, err := database.GetUserMeetingDetail(user.ID, meetingID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unauthorized") {
+			http.Error(w, "Unauthorized", http.StatusForbidden)
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, "Meeting not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Failed to get meeting detail: %v", err)
+		http.Error(w, "Failed to get meeting", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"meeting": detail,
+	})
 }

@@ -17,10 +17,10 @@ services:
       resources:
         limits:
           cpus: '4'
-          memory: 8G
+          memory: 4G
         reservations:
           cpus: '2'
-          memory: 4G
+          memory: 2G
           devices:
             - driver: nvidia
               count: 1
@@ -79,10 +79,10 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 4G
+          memory: 2G
         reservations:
           cpus: '1'
-          memory: 2G
+          memory: 1G
           devices:
             - driver: nvidia
               count: 1
@@ -95,8 +95,91 @@ services:
       start_period: 40s
     restart: unless-stopped
 
+  embedding_service:
+    build:
+      context: ./services/embedding_service
+      dockerfile: Dockerfile
+    image: embedding_service:latest
+    ports:
+      - "8006:8006"
+    volumes:
+      # Share HuggingFace cache with other services
+      - huggingface_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  llm_service:
+    build:
+      context: ./services/llm_service
+      dockerfile: Dockerfile
+    image: llm_service:latest
+    ports:
+      - "8007:8007"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8007/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
   postgres:
-    image: postgres:15-alpine
+    image: ankane/pgvector:latest
     ports:
       - "5433:5432"
     environment:
@@ -132,7 +215,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -179,3 +262,4 @@ volumes:
   tts_cache:
   postgres_data:
   minio_data:
+  ollama_data:  # Ollama model storage

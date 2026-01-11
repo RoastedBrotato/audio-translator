@@ -11,19 +11,22 @@ import (
 	"github.com/gorilla/websocket"
 
 	"realtime-caption-translator/internal/database"
+	"realtime-caption-translator/internal/rag"
 )
 
 // RoomManager manages active meeting rooms
 // Pattern based on progress.Manager for WebSocket broadcasting
 type RoomManager struct {
-	mu          sync.RWMutex
-	activeRooms map[string]*Room // meetingId -> Room
+	mu           sync.RWMutex
+	activeRooms  map[string]*Room // meetingId -> Room
+	ragProcessor *rag.Processor   // RAG processor for chunking and embedding transcripts
 }
 
-// NewRoomManager creates a new room manager
-func NewRoomManager() *RoomManager {
+// NewRoomManager creates a new room manager with RAG support
+func NewRoomManager(ragProcessor *rag.Processor) *RoomManager {
 	return &RoomManager{
-		activeRooms: make(map[string]*Room),
+		activeRooms:  make(map[string]*Room),
+		ragProcessor: ragProcessor,
 	}
 }
 
@@ -82,6 +85,18 @@ func (rm *RoomManager) EndMeeting(meetingID string) error {
 	for lang, transcript := range transcriptSnapshots {
 		if err := database.SaveMeetingTranscriptSnapshot(meetingID, lang, transcript); err != nil {
 			log.Printf("Failed to save meeting transcript snapshot %s/%s: %v", meetingID, lang, err)
+		}
+	}
+
+	// Trigger asynchronous RAG processing for each language
+	if rm.ragProcessor != nil {
+		for lang, transcript := range transcriptSnapshots {
+			// Launch goroutine for each language to process in parallel
+			go func(meetingID, language, transcriptText string) {
+				if err := rm.ragProcessor.ProcessMeetingTranscript(meetingID, language, transcriptText); err != nil {
+					log.Printf("[RAG] Processing error for meeting %s (language: %s): %v", meetingID, language, err)
+				}
+			}(meetingID, lang, transcript)
 		}
 	}
 

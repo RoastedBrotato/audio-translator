@@ -24,6 +24,9 @@ function createNavbar() {
         <a href="/features/streaming/streaming.html" class="${isActive('/features/streaming/streaming.html') ? 'active' : ''}">
           🎙️ Live Streaming
         </a>
+        <a href="/features/history/meetings-history.html" class="nav-auth-only ${isActive('/features/history/meetings-history.html') ? 'active' : ''}" style="display: none;">
+          🗂️ History
+        </a>
         <a href="/features/recording/recording.html" class="${isActive('/features/recording/recording.html') ? 'active' : ''}">
           🎵 Audio Upload
         </a>
@@ -112,6 +115,10 @@ async function setupAuthControls() {
 }
 
 function updateAuthUI(profile, authButton, authStatus) {
+  document.querySelectorAll('.nav-auth-only').forEach((link) => {
+    link.style.display = profile ? '' : 'none';
+  });
+
   if (profile) {
     authButton.textContent = 'Sign out';
     authButton.dataset.authenticated = 'true';
