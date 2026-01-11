@@ -1921,8 +1921,14 @@ func main() {
 		log.Fatalf("Failed to create temp directory: %v", err)
 	}
 
+	asrBaseURL := getEnv("ASR_BASE_URL", "http://127.0.0.1:8003")
+	translationBaseURL := getEnv("TRANSLATION_BASE_URL", "http://127.0.0.1:8004")
+	ttsBaseURL := getEnv("TTS_BASE_URL", "http://127.0.0.1:8005")
+	embeddingBaseURL := getEnv("EMBEDDING_BASE_URL", "http://127.0.0.1:8006")
+	llmBaseURL := getEnv("LLM_BASE_URL", "http://127.0.0.1:8007")
+
 	srv := session.NewServer(session.Config{
-		ASRBaseURL:    "http://127.0.0.1:8003",
+		ASRBaseURL:    asrBaseURL,
 		PollInterval:  800 * time.Millisecond,
 		WindowSeconds: 8,
 		FinalizeAfter: 500 * time.Millisecond, // Reduced from 900ms for faster finalization
@@ -1935,19 +1941,19 @@ func main() {
 	videoProcessor := video.NewProcessor(tempDir)
 
 	// Create ASR client for batch processing
-	asrClient := asr.New("http://127.0.0.1:8003")
+	asrClient := asr.New(asrBaseURL)
 
 	// Create translator
 	translator := &translate.HTTPTranslator{
-		BaseURL: "http://127.0.0.1:8004",
+		BaseURL: translationBaseURL,
 	}
 
 	// Create TTS client
-	ttsClient := tts.New("http://127.0.0.1:8005")
+	ttsClient := tts.New(ttsBaseURL)
 
 	// Create RAG components (embedding + LLM clients)
-	embeddingClient := embedding.New("http://127.0.0.1:8006")
-	llmClient := llm.New("http://127.0.0.1:8007")
+	embeddingClient := embedding.New(embeddingBaseURL)
+	llmClient := llm.New(llmBaseURL)
 	ragProcessor := rag.NewProcessor(embeddingClient)
 	ragQueryEngine := rag.NewQueryEngine(embeddingClient, llmClient)
 	log.Println("RAG components initialized")
@@ -2313,6 +2319,14 @@ func translateWithChunking(t translate.Translator, text, sourceLang, targetLang 
 
 	// Fallback to regular translation for other translator types
 	return t.TranslateWithSource(text, sourceLang, targetLang)
+}
+
+func getEnv(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // handleChatSessions creates a new chat session for a meeting

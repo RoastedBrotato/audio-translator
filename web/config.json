@@ -1,0 +1,14 @@
+{
+  "keycloak": {
+    "issuer": "http://localhost:8180/realms/audio-transcriber",
+    "clientId": "audio-translator-client",
+    "scope": "openid profile email"
+  },
+  "services": {
+    "asrBaseUrl": "http://localhost:8003",
+    "translationBaseUrl": "http://localhost:8004",
+    "ttsBaseUrl": "http://localhost:8005",
+    "embeddingBaseUrl": "http://localhost:8006",
+    "llmBaseUrl": "http://localhost:8007"
+  }
+}

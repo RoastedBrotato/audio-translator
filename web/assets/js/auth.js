@@ -1,13 +1,27 @@
+import { getConfig } from '/assets/js/config.js';
+
 const AUTH_STORAGE_KEY = 'keycloak_auth';
 const AUTH_STATE_KEY = 'keycloak_auth_state';
 const AUTH_VERIFIER_KEY = 'keycloak_auth_verifier';
 
-const config = {
-    issuer: 'http://localhost:8180/realms/audio-transcriber',
-    clientId: 'audio-translator-client',
-    redirectUri: window.location.origin + window.location.pathname,
-    scope: 'openid profile email'
-};
+let cachedAuthConfig = null;
+
+async function getAuthConfig() {
+    if (cachedAuthConfig) {
+        return cachedAuthConfig;
+    }
+
+    const appConfig = await getConfig();
+    const keycloak = appConfig.keycloak || {};
+    cachedAuthConfig = {
+        issuer: keycloak.issuer || 'http://localhost:8180/realms/audio-transcriber',
+        clientId: keycloak.clientId || 'audio-translator-client',
+        redirectUri: window.location.origin + window.location.pathname,
+        scope: keycloak.scope || 'openid profile email'
+    };
+
+    return cachedAuthConfig;
+}
 
 function base64UrlEncode(bytes) {
     return btoa(String.fromCharCode(...bytes))
@@ -62,15 +76,18 @@ function parseJwt(token) {
     }
 }
 
-function authEndpoint() {
+async function authEndpoint() {
+    const config = await getAuthConfig();
     return `${config.issuer}/protocol/openid-connect/auth`;
 }
 
-function tokenEndpoint() {
+async function tokenEndpoint() {
+    const config = await getAuthConfig();
     return `${config.issuer}/protocol/openid-connect/token`;
 }
 
-function buildAuthUrl(state, codeChallenge) {
+async function buildAuthUrl(state, codeChallenge) {
+    const config = await getAuthConfig();
     const params = new URLSearchParams({
         client_id: config.clientId,
         redirect_uri: config.redirectUri,
@@ -81,10 +98,12 @@ function buildAuthUrl(state, codeChallenge) {
         code_challenge_method: 'S256'
     });
 
-    return `${authEndpoint()}?${params.toString()}`;
+    const endpoint = await authEndpoint();
+    return `${endpoint}?${params.toString()}`;
 }
 
 async function exchangeCode(code, verifier) {
+    const config = await getAuthConfig();
     const body = new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
@@ -93,7 +112,8 @@ async function exchangeCode(code, verifier) {
         code_verifier: verifier
     });
 
-    const response = await fetch(tokenEndpoint(), {
+    const endpoint = await tokenEndpoint();
+    const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body
@@ -107,13 +127,15 @@ async function exchangeCode(code, verifier) {
 }
 
 async function refreshToken(refreshTokenValue) {
+    const config = await getAuthConfig();
     const body = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshTokenValue,
         client_id: config.clientId
     });
 
-    const response = await fetch(tokenEndpoint(), {
+    const endpoint = await tokenEndpoint();
+    const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body
@@ -132,6 +154,7 @@ function withExpiry(auth) {
 }
 
 export async function initAuth() {
+    await getAuthConfig();
     await handleAuthCallback();
 
     const auth = getStoredAuth();
@@ -163,10 +186,12 @@ export async function login() {
     sessionStorage.setItem(AUTH_STATE_KEY, state);
     sessionStorage.setItem(AUTH_VERIFIER_KEY, verifier);
 
-    window.location.assign(buildAuthUrl(state, challenge));
+    const url = await buildAuthUrl(state, challenge);
+    window.location.assign(url);
 }
 
-export function logout() {
+export async function logout() {
+    const config = await getAuthConfig();
     const auth = getStoredAuth();
     clearStoredAuth();
 
@@ -184,6 +209,7 @@ export function logout() {
 }
 
 async function handleAuthCallback() {
+    await getAuthConfig();
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');

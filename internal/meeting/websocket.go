@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,10 +24,12 @@ const (
 	sampleRate    = 16000
 	windowSeconds = 12                         // Increased from 8 to give diarization more context
 	bufferSize    = sampleRate * windowSeconds // 192,000 samples
+)
 
+var (
 	// ASR and Translation service URLs
-	asrBaseURL         = "http://127.0.0.1:8003"
-	translationBaseURL = "http://127.0.0.1:8004"
+	asrBaseURL         = getEnv("ASR_BASE_URL", "http://127.0.0.1:8003")
+	translationBaseURL = getEnv("TRANSLATION_BASE_URL", "http://127.0.0.1:8004")
 )
 
 // HandleMeetingWebSocket handles WebSocket connections for meeting rooms
@@ -555,6 +559,14 @@ func bytesToInt16(data []byte) []int16 {
 		samples[i] = int16(binary.LittleEndian.Uint16(data[i*2:]))
 	}
 	return samples
+}
+
+func getEnv(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // samplesToWAV converts int16 samples to WAV file format

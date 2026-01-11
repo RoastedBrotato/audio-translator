@@ -1,5 +1,21 @@
 import { convertToPCM16, resampleAudio } from '../../assets/js/audio-processor.js';
 import { escapeHtml, downloadBlob, postJsonWithAuth } from '../../assets/js/utils.js';
+import { getConfig } from '../../assets/js/config.js';
+
+let appConfig = null;
+
+async function loadConfig() {
+  if (!appConfig) {
+    appConfig = await getConfig();
+  }
+  return appConfig;
+}
+
+function toWebSocketUrl(baseUrl, path) {
+  const url = new URL(baseUrl);
+  const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${url.host}${path}`;
+}
 
 let ws = null;
 let mediaStream = null;
@@ -27,6 +43,8 @@ btnStop.addEventListener('click', stopStreaming);
 
 async function startStreaming() {
   try {
+    const config = await loadConfig();
+    const asrBaseUrl = config.services?.asrBaseUrl || 'http://localhost:8003';
     sessionId = 'stream_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     // Reset UI for new session
@@ -81,9 +99,9 @@ async function startStreaming() {
     processor.connect(audioContext.destination);
     
     // Connect to streaming WebSocket (port 8003 for ASR streaming service)
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const lang = sourceLang.value === 'auto' ? 'auto' : sourceLang.value;
-    ws = new WebSocket(`${protocol}//localhost:8003/stream?language=${lang}&session_id=${sessionId}`);
+    const wsBase = toWebSocketUrl(asrBaseUrl, '/stream');
+    ws = new WebSocket(`${wsBase}?language=${lang}&session_id=${sessionId}`);
     
     // Wait for WebSocket to open before starting streaming
     await new Promise((resolve, reject) => {
@@ -206,7 +224,9 @@ function handleStreamingMessage(data) {
 
 async function translateSegment(text, index) {
   try {
-    const response = await fetch('http://localhost:8004/translate', {
+    const config = await loadConfig();
+    const translationBaseUrl = config.services?.translationBaseUrl || 'http://localhost:8004';
+    const response = await fetch(`${translationBaseUrl}/translate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -306,10 +326,12 @@ async function triggerFinalProcessing() {
   
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      const config = await loadConfig();
+      const asrBaseUrl = config.services?.asrBaseUrl || 'http://localhost:8003';
       console.log(`Polling attempt ${attempt}/${maxAttempts}...`);
       liveCaption.innerHTML = `<span style="opacity: 0.7;">⏳ Processing... (${attempt * 2}s)</span>`;
       
-      const response = await fetch(`http://localhost:8003/transcription/${sessionId}`);
+      const response = await fetch(`${asrBaseUrl}/transcription/${sessionId}`);
 
       if (response.ok) {
         const result = await response.json();

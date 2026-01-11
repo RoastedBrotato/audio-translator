@@ -23,6 +23,7 @@ let meetingId = null;
 let roomCode = null;
 let meetingMode = null;
 let hostToken = null;
+let isEndingMeeting = false;
 
 // Track speaking participants
 const speakingParticipants = new Set();
@@ -820,6 +821,9 @@ async function downloadTranscriptSnapshot() {
 }
 
 async function endMeeting() {
+    if (isEndingMeeting) {
+        return;
+    }
     if (!hostToken) {
         alert('Host token missing. Unable to end meeting.');
         return;
@@ -831,23 +835,57 @@ async function endMeeting() {
 
     const meetingKey = roomCode || meetingId;
     try {
+        isEndingMeeting = true;
+        const endMeetingButton = document.getElementById('endMeetingButton');
+        if (endMeetingButton) {
+            endMeetingButton.disabled = true;
+            endMeetingButton.textContent = 'Ending...';
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch(`/api/meetings/${meetingKey}/end`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ hostToken })
+            body: JSON.stringify({ hostToken }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
         if (!response.ok) {
             const errorText = await response.text();
             alert(`Failed to end meeting: ${errorText || response.status}`);
+            if (endMeetingButton) {
+                endMeetingButton.disabled = false;
+                endMeetingButton.textContent = 'End Meeting';
+            }
+            isEndingMeeting = false;
             return;
         }
         showStatus('Meeting ended. You can download snapshots now.', false);
+        if (endMeetingButton) {
+            endMeetingButton.disabled = true;
+            endMeetingButton.textContent = 'Meeting Ended';
+        }
+        if (meetingWs && meetingWs.readyState === WebSocket.OPEN) {
+            meetingWs.close();
+        }
         cleanupAudio();
         refreshSnapshotLanguages();
         setTimeout(hideStatus, 1500);
     } catch (error) {
         console.error('Error ending meeting:', error);
-        alert('Failed to end meeting');
+        const message = error && error.name === 'AbortError'
+            ? 'End meeting request timed out. Please try again.'
+            : 'Failed to end meeting';
+        alert(message);
+        const endMeetingButton = document.getElementById('endMeetingButton');
+        if (endMeetingButton) {
+            endMeetingButton.disabled = false;
+            endMeetingButton.textContent = 'End Meeting';
+        }
+    } finally {
+        isEndingMeeting = false;
     }
 }
 
