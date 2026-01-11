@@ -3,7 +3,7 @@ const AUTH_STATE_KEY = 'keycloak_auth_state';
 const AUTH_VERIFIER_KEY = 'keycloak_auth_verifier';
 
 const config = {
-    issuer: 'http://localhost:8180/realms/master',
+    issuer: 'http://localhost:8180/realms/audio-transcriber',
     clientId: 'audio-translator-client',
     redirectUri: window.location.origin + window.location.pathname,
     scope: 'openid profile email'
