@@ -5,7 +5,7 @@
 
 // Import shared utilities
 import { convertToPCM16, getAudioLevel, resampleAudio } from '/assets/js/audio-processor.js';
-import { getLanguageName, escapeHtml } from '/assets/js/utils.js';
+import { getLanguageName, escapeHtml, getAccessToken } from '/assets/js/utils.js';
 
 // Meeting WebSocket Client
 let meetingWs = null;
@@ -90,7 +90,33 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Connect to meeting
     connectToMeeting();
+
+    // Link guest participant to authenticated user if available.
+    linkParticipantToUser();
 });
+
+async function linkParticipantToUser() {
+    const token = getAccessToken();
+    if (!token || !myParticipantId || !meetingId) {
+        return;
+    }
+
+    const meetingKey = roomCode || meetingId;
+    try {
+        await fetch(`/api/meetings/${meetingKey}/link`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                participantId: parseInt(myParticipantId, 10)
+            })
+        });
+    } catch (error) {
+        console.warn('Failed to link participant to user:', error);
+    }
+}
 
 function setupEventListeners() {
     // Mute/Unmute button

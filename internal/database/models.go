@@ -452,6 +452,22 @@ func UpdateParticipantLanguage(participantID int, targetLang string) error {
 	return nil
 }
 
+// UpdateParticipantUserID links a participant record to a user.
+func UpdateParticipantUserID(participantID int, userID int) error {
+	query := `
+		UPDATE meeting_participants
+		SET user_id = $1
+		WHERE id = $2
+	`
+
+	_, err := DB.Exec(query, userID, participantID)
+	if err != nil {
+		return fmt.Errorf("failed to update participant user: %w", err)
+	}
+
+	return nil
+}
+
 // RemoveParticipant marks a participant as inactive (left the meeting)
 func RemoveParticipant(participantID int) error {
 	query := `

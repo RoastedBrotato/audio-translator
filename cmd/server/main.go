@@ -1653,6 +1653,12 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 		return
 	}
 
+	// Check if it's a participant link request
+	if len(pathParts) >= 5 && pathParts[4] == "link" && r.Method == "POST" {
+		handleLinkParticipant(w, r, keycloakVerifier, pathParts[3])
+		return
+	}
+
 	// Check if it's a speaker name update: /api/meetings/{roomCode}/speakers/{speakerId}
 	if len(pathParts) >= 6 && pathParts[4] == "speakers" && r.Method == "POST" {
 		handleUpdateSpeakerName(w, r, roomManager, pathParts[3], pathParts[5])
@@ -1661,6 +1667,68 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 
 	// Otherwise, it's a get meeting info request
 	handleGetMeeting(w, r, roomManager)
+}
+
+func handleLinkParticipant(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier, roomCode string) {
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		ParticipantID int `json:"participantId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ParticipantID <= 0 {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mtg, err := getMeetingByCodeOrID(roomCode)
+	if err != nil {
+		log.Printf("Error getting meeting: %v", err)
+		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		return
+	}
+	if mtg == nil {
+		http.Error(w, "Meeting not found", http.StatusNotFound)
+		return
+	}
+
+	participant, err := database.GetParticipantByID(req.ParticipantID)
+	if err != nil {
+		log.Printf("Failed to get participant: %v", err)
+		http.Error(w, "Failed to find participant", http.StatusInternalServerError)
+		return
+	}
+	if participant == nil || participant.MeetingID != mtg.ID {
+		http.Error(w, "Participant not found", http.StatusNotFound)
+		return
+	}
+
+	if participant.UserID != nil {
+		if *participant.UserID != user.ID {
+			http.Error(w, "Participant already linked", http.StatusConflict)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"linked":  true,
+		})
+		return
+	}
+
+	if err := database.UpdateParticipantUserID(req.ParticipantID, user.ID); err != nil {
+		log.Printf("Failed to link participant: %v", err)
+		http.Error(w, "Failed to link participant", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"linked":  true,
+	})
 }
 
 func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
