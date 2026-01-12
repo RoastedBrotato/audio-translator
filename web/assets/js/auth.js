@@ -92,6 +92,7 @@ async function buildAuthUrl(state, codeChallenge) {
         client_id: config.clientId,
         redirect_uri: config.redirectUri,
         response_type: 'code',
+        response_mode: 'query',
         scope: config.scope,
         state: state,
         code_challenge: codeChallenge,
@@ -185,6 +186,9 @@ export async function login() {
 
     sessionStorage.setItem(AUTH_STATE_KEY, state);
     sessionStorage.setItem(AUTH_VERIFIER_KEY, verifier);
+    // Persist as a fallback in case sessionStorage is cleared on redirect.
+    localStorage.setItem(AUTH_STATE_KEY, state);
+    localStorage.setItem(AUTH_VERIFIER_KEY, verifier);
 
     const url = await buildAuthUrl(state, challenge);
     window.location.assign(url);
@@ -211,16 +215,19 @@ export async function logout() {
 async function handleAuthCallback() {
     await getAuthConfig();
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const code = params.get('code') || hashParams.get('code');
+    const state = params.get('state') || hashParams.get('state');
     if (!code) {
         return;
     }
 
-    const expectedState = sessionStorage.getItem(AUTH_STATE_KEY);
-    const verifier = sessionStorage.getItem(AUTH_VERIFIER_KEY);
+    const expectedState = sessionStorage.getItem(AUTH_STATE_KEY) || localStorage.getItem(AUTH_STATE_KEY);
+    const verifier = sessionStorage.getItem(AUTH_VERIFIER_KEY) || localStorage.getItem(AUTH_VERIFIER_KEY);
     sessionStorage.removeItem(AUTH_STATE_KEY);
     sessionStorage.removeItem(AUTH_VERIFIER_KEY);
+    localStorage.removeItem(AUTH_STATE_KEY);
+    localStorage.removeItem(AUTH_VERIFIER_KEY);
 
     if (!state || !expectedState || state !== expectedState || !verifier) {
         console.warn('Auth state mismatch');
@@ -233,6 +240,7 @@ async function handleAuthCallback() {
         const url = new URL(window.location.href);
         url.searchParams.delete('code');
         url.searchParams.delete('state');
+        url.hash = '';
         window.history.replaceState({}, document.title, url.toString());
     } catch (err) {
         console.error('Auth callback failed', err);
