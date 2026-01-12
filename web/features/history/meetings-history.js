@@ -1,4 +1,5 @@
 import { initAuth, login } from '/assets/js/auth.js';
+import { getConfig } from '/assets/js/config.js';
 import { getAccessToken, getLanguageName, escapeHtml } from '/assets/js/utils.js';
 
 const authOverlay = document.getElementById('authOverlay');
@@ -12,6 +13,9 @@ const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const pageInfo = document.getElementById('pageInfo');
 const statusFilter = document.getElementById('statusFilter');
+const statusGrid = document.getElementById('statusGrid');
+const statusTimestamp = document.getElementById('statusTimestamp');
+const refreshStatusBtn = document.getElementById('refreshStatus');
 
 const PAGE_LIMIT = 12;
 let currentOffset = 0;
@@ -131,6 +135,99 @@ function updatePagination() {
     pagination.style.display = 'flex';
 }
 
+function formatStatusDetail(data) {
+    if (!data || typeof data !== 'object') {
+        return '';
+    }
+
+    const details = [];
+    if (data.status) {
+        details.push(`status: ${data.status}`);
+    }
+    if (data.model) {
+        details.push(`model: ${data.model}`);
+    } else if (data.default_model) {
+        details.push(`model: ${data.default_model}`);
+    }
+    if (typeof data.xtts_loaded === 'boolean') {
+        details.push(`xtts: ${data.xtts_loaded ? 'ready' : 'loading'}`);
+    }
+
+    return details.join(' • ');
+}
+
+async function checkServiceHealth(service, baseUrl) {
+    const item = statusGrid.querySelector(`[data-service="${service}"]`);
+    if (!item) {
+        return;
+    }
+
+    const pill = item.querySelector('.status-pill');
+    const detail = item.querySelector('.status-detail');
+
+    pill.textContent = 'Checking...';
+    pill.classList.remove('ok', 'error');
+    detail.textContent = '';
+
+    if (!baseUrl) {
+        pill.textContent = 'Not configured';
+        pill.classList.add('error');
+        return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+        const response = await fetch(`${baseUrl}/health`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            pill.textContent = `Error (${response.status})`;
+            pill.classList.add('error');
+            return;
+        }
+
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (err) {
+            data = null;
+        }
+
+        pill.textContent = 'Healthy';
+        pill.classList.add('ok');
+        detail.textContent = formatStatusDetail(data);
+    } catch (error) {
+        clearTimeout(timeoutId);
+        const isTimeout = error && error.name === 'AbortError';
+        pill.textContent = isTimeout ? 'Timeout' : 'Unavailable';
+        pill.classList.add('error');
+    }
+}
+
+async function loadServiceStatus() {
+    if (!statusGrid) {
+        return;
+    }
+
+    const config = await getConfig();
+    const services = config.services || {};
+
+    await Promise.all([
+        checkServiceHealth('asr', services.asrBaseUrl),
+        checkServiceHealth('translation', services.translationBaseUrl),
+        checkServiceHealth('tts', services.ttsBaseUrl),
+        checkServiceHealth('embedding', services.embeddingBaseUrl),
+        checkServiceHealth('llm', services.llmBaseUrl)
+    ]);
+
+    if (statusTimestamp) {
+        const now = new Date();
+        statusTimestamp.textContent = `Last checked: ${now.toLocaleTimeString()}`;
+    }
+}
+
 async function loadMeetings() {
     setLoading(true);
 
@@ -175,6 +272,7 @@ async function loadMeetings() {
 
 async function init() {
     signInBtn.addEventListener('click', () => login());
+    refreshStatusBtn.addEventListener('click', () => loadServiceStatus());
 
     const profile = await initAuth();
     const token = getAccessToken();
@@ -184,6 +282,7 @@ async function init() {
     }
 
     showMainContent();
+    await loadServiceStatus();
     await loadMeetings();
 }
 

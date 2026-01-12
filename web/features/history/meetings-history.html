@@ -99,6 +99,86 @@
             gap: 8px;
         }
 
+        /* Status panel */
+        .status-panel {
+            border: 1px solid var(--card-border);
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+        }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .status-header h2 {
+            font-size: 18px;
+        }
+
+        .status-timestamp {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .status-grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .status-item {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px;
+            background: var(--bg-white);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .status-name {
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-secondary);
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            width: fit-content;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            background: var(--secondary-bg);
+            color: var(--text-secondary);
+        }
+
+        .status-pill.ok {
+            background: var(--success-bg);
+            color: var(--success-color);
+        }
+
+        .status-pill.error {
+            background: rgba(239, 68, 68, 0.12);
+            color: #ef4444;
+        }
+
+        .status-detail {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.4;
+            min-height: 16px;
+        }
+
         /* Meetings grid */
         .meetings-grid {
             display: grid;
@@ -307,6 +387,43 @@
             <a href="../meeting/meeting-create.html" class="btn-primary new-meeting-btn">
                 + New Meeting
             </a>
+        </div>
+
+        <div class="status-panel">
+            <div class="status-header">
+                <h2>System Status</h2>
+                <div>
+                    <span id="statusTimestamp" class="status-timestamp">Checking...</span>
+                    <button id="refreshStatus" class="btn-secondary" type="button">Refresh</button>
+                </div>
+            </div>
+            <div id="statusGrid" class="status-grid" aria-live="polite">
+                <div class="status-item" data-service="asr">
+                    <div class="status-name">ASR</div>
+                    <div class="status-pill">Checking...</div>
+                    <div class="status-detail"></div>
+                </div>
+                <div class="status-item" data-service="translation">
+                    <div class="status-name">Translation</div>
+                    <div class="status-pill">Checking...</div>
+                    <div class="status-detail"></div>
+                </div>
+                <div class="status-item" data-service="tts">
+                    <div class="status-name">TTS</div>
+                    <div class="status-pill">Checking...</div>
+                    <div class="status-detail"></div>
+                </div>
+                <div class="status-item" data-service="embedding">
+                    <div class="status-name">Embedding</div>
+                    <div class="status-pill">Checking...</div>
+                    <div class="status-detail"></div>
+                </div>
+                <div class="status-item" data-service="llm">
+                    <div class="status-name">LLM</div>
+                    <div class="status-pill">Checking...</div>
+                    <div class="status-detail"></div>
+                </div>
+            </div>
         </div>
 
         <!-- Loading state -->
