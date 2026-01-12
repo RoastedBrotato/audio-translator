@@ -1,13 +1,13 @@
 # Real-time Audio Translator
 
-A comprehensive real-time speech-to-text and translation system with support for live streaming, meeting rooms, video/audio processing, and multi-user collaboration.
+A real-time speech-to-text and translation system with live streaming, multi-user meetings, video/audio processing, meeting history, and RAG chat.
 
 ## 🌟 Features
 
 ### Live Translation Modes
 - **🎙️ Real-time Streaming**: Live microphone transcription with instant translation
-- **📹 Meeting Rooms**: Multi-user meetings with real-time translation for each participant
-  - **Individual Device Mode**: Each person joins with their own microphone
+- **📹 Meeting Rooms**: Multi-user meetings with translation per participant
+  - **Individual Device Mode**: Each person uses their own microphone
   - **Shared Room Mode**: Multiple speakers on one mic with AI speaker identification
 - **🎬 Video Translation**: Upload videos for transcription, translation, and TTS audio replacement
 - **🎵 Audio Recording**: Upload audio files with speaker diarization support
@@ -24,17 +24,37 @@ A comprehensive real-time speech-to-text and translation system with support for
 - **Progress Tracking**: WebSocket-based progress updates for long operations
 - **Audio Enhancement**: Optional noise reduction for uploaded files
 - **Transcript Export**: Download meeting transcripts in multiple languages
+- **Meeting History**: Account-scoped history with meeting detail views
+- **RAG Chat**: Ask questions about meeting transcripts
+- **Meeting Minutes**: Auto-generated participants, key points, action items, decisions, and summary
 
 ## 🏗️ Architecture
 
 ### System Components
-- **Frontend**: Modern web interface with feature-based architecture
+- **Frontend**: Feature-based web UI
 - **Backend**: Go server with WebSocket support and REST API
 - **ASR Service**: Python FastAPI + Whisper for speech recognition
 - **Translation Service**: Python service using Google Translate API
 - **TTS Service**: XTTS v2 for text-to-speech with voice cloning
-- **Database**: PostgreSQL for meeting data, participants, and speaker profiles
+- **Embedding + LLM**: RAG pipeline for meeting Q&A
+- **Database**: PostgreSQL for meeting data and participants
 - **Video Processing**: FFmpeg for audio/video manipulation
+
+### Streaming Captions (Live)
+```
+Browser Mic → WebSocket (16kHz PCM) → Faster-Whisper → Partial Captions
+                                        ↓
+                                     VAD
+                                        ↓
+                                Final Segments
+                                        ↓
+                                  Translation
+                                        ↓
+                               Translated Output
+```
+- Partial captions appear immediately
+- Final segments are emitted after silence detection
+- Translation runs on finalized segments only
 
 ### Web Directory Structure
 ```
@@ -42,69 +62,25 @@ web/
 ├── index.html                    # Landing page
 ├── assets/                       # Shared resources
 │   ├── css/                      # Modular stylesheets
-│   │   ├── variables.css         # Design tokens (colors, spacing)
-│   │   ├── base.css              # Base styles
-│   │   ├── buttons.css           # Button components
-│   │   ├── forms.css             # Form elements
-│   │   ├── layout.css            # Page layouts
-│   │   └── ... (15+ modular CSS files)
 │   ├── js/                       # Shared utilities
-│   │   ├── audio-processor.js    # Audio conversion & processing
-│   │   ├── utils.js              # Helper functions (escapeHtml, debounce, etc.)
-│   │   └── websocket-manager.js  # WebSocket wrapper
 │   └── images/                   # Static images
 ├── components/                   # Reusable UI components
-│   └── navbar/                   # Navigation bar component
-│       └── navbar.js
 └── features/                     # Feature modules
     ├── home/                     # Home page
-    ├── streaming/                # Live streaming feature
-    │   ├── streaming.html
-    │   ├── streaming.js
-    │   └── pcm-worklet.js
-    ├── recording/                # Audio upload & processing
-    │   ├── recording.html
-    │   └── recording.js
-    ├── video/                    # Video upload & processing
-    │   ├── video.html
-    │   └── video.js
-    └── meeting/                  # Meeting rooms
-        ├── meeting-create.html   # Create/join meetings
-        ├── meeting-join.html     # Join with name & language
-        ├── meeting-room.html     # Active meeting interface
-        └── meeting-room.js       # Meeting room logic (ES6 modules)
+    ├── streaming/                # Live streaming
+    ├── recording/                # Audio upload
+    ├── video/                    # Video upload
+    ├── meeting/                  # Meeting rooms
+    └── history/                  # Meeting history + chat
 ```
-
-### Shared Utilities
-
-All feature modules import shared utilities to eliminate code duplication:
-
-**audio-processor.js**
-```javascript
-import { convertToPCM16, getAudioLevel, samplesToWAV } from '/assets/js/audio-processor.js';
-```
-- `convertToPCM16()` - Float32 to PCM16 conversion
-- `getAudioLevel()` - Calculate audio levels for meters
-- `samplesToWAV()` - Generate WAV file headers
-- `hasVoiceActivity()` - Voice activity detection
-
-**utils.js**
-```javascript
-import { escapeHtml, getLanguageName, debounce, formatTimestamp } from '/assets/js/utils.js';
-```
-- `escapeHtml()` - XSS prevention for user-generated content
-- `getLanguageName()` - Language code to display name
-- `debounce()` - Debounce function calls
-- `formatTimestamp()` - Human-readable timestamps
-- `downloadBlob()` - Trigger file downloads
 
 ## 📋 Prerequisites
 
-- **Go** 1.16+ (for backend server)
-- **Python** 3.8+ (for AI services)
-- **Docker & Docker Compose** (recommended deployment)
-- **FFmpeg** (for video/audio processing)
-- **PostgreSQL** 15+ (for meeting data persistence)
+- **Go** 1.16+ (backend server)
+- **Python** 3.8+ (AI services)
+- **Docker & Docker Compose** (recommended)
+- **FFmpeg** (video/audio processing)
+- **PostgreSQL** 15+
 
 ### Install FFmpeg
 ```bash
@@ -118,7 +94,6 @@ brew install ffmpeg
 ## 🚀 Quick Start
 
 ### Automated Setup (Recommended)
-
 ```bash
 # 1. Clone the repository
 git clone <your-repo>
@@ -134,26 +109,19 @@ cp .env.example .env
 
 **What this does:**
 - ✅ Checks and builds Docker images if needed
-- ✅ Starts PostgreSQL database
-- ✅ Starts ASR, Translation, and TTS services
+- ✅ Starts PostgreSQL, ASR, Translation, TTS, Embedding, and LLM services
 - ✅ Runs database migrations
 - ✅ Builds and starts the Go web server
-- ✅ Shows service URLs and status
-
-**First-time setup:**
-- Docker images take 15-30 minutes to build (one time)
-- ASR downloads Whisper model (~500MB)
-- TTS downloads XTTS v2 model (~1.8GB)
-- Models are cached in Docker volumes
 
 **Service URLs:**
 - 🌐 Web UI: http://localhost:8080
 - 🎤 ASR Service: http://localhost:8003
 - 🌍 Translation: http://localhost:8004
 - 🔊 TTS Service: http://localhost:8005
+- 🧠 Embeddings: http://localhost:8006
+- 💬 LLM: http://localhost:8007
 
 ### Manual Docker Setup
-
 ```bash
 # Start services
 docker compose up -d
@@ -168,7 +136,6 @@ set -a && source .env && set +a  # Load environment variables
 ```
 
 ### Stop Services
-
 ```bash
 # Stop everything
 docker compose down && pkill -f bin/server
@@ -183,10 +150,7 @@ kill $(cat bin/server.pid)
 ## 📖 Usage Guide
 
 ### 1. Real-time Streaming
-
-**Live microphone translation:**
-
-1. Navigate to http://localhost:8080
+1. Go to http://localhost:8080
 2. Click **"Streaming Translation"**
 3. Select source and target languages
 4. Click **Start** and grant microphone permission
@@ -195,205 +159,137 @@ kill $(cat bin/server.pid)
 7. Download transcript when done
 
 ### 2. Meeting Rooms
-
-**Multi-user meetings with translation:**
-
-#### Create a Meeting (Individual Device Mode)
 1. Go to http://localhost:8080/meeting.html
-2. Click **"Individual Devices"** mode
-3. Copy the room code (e.g., `ABC-123`)
-4. Share the code with participants
-5. Click **Join Meeting**
-6. Enter your name and select your language
-7. Grant microphone permission
-8. Start speaking!
+2. Choose **Individual Devices** or **Shared Room**
+3. Share the room code with participants
+4. Join, select language, and grant microphone permission
+5. Host can end the meeting for everyone
 
-**How it works:**
-- Each participant joins from their own device
-- Everyone's audio is transcribed separately
-- Translations appear in each person's preferred language
-- Speaker labels are customizable (click to rename)
+### 3. Meeting History + RAG Chat
+1. Go to http://localhost:8080/features/history/meetings-history.html
+2. Sign in (Keycloak) to view account-scoped history
+3. Open a meeting to view minutes and full transcript
+4. Use the chat panel to ask questions about the meeting
 
-#### Create a Meeting (Shared Room Mode)
-1. Click **"Shared Room"** mode instead
-2. Multiple people speak into the same microphone
-3. AI automatically identifies and labels speakers
-4. Each participant still sees translations in their language
-
-**Features:**
-- Real-time participant list
-- Live captions in your language
-- Click speaker labels to rename them
-- Download transcript in any language
-- Host can end the meeting for everyone
-
-### 3. Video Translation
-
-**Upload and translate videos:**
-
+### 4. Video Translation
 1. Go to http://localhost:8080/video.html
-2. Drag and drop a video file (or click to browse)
-3. Select source language (or auto-detect)
-4. Select target language
-5. **Optional**: Check "Generate translated audio"
-6. **Optional**: Check "Clone original voice" (experimental)
-7. Click **Process Video**
-8. Wait for processing (progress shown)
-9. Download transcript or translated video
+2. Upload a video file
+3. Select source/target languages
+4. Optional: enable **"Generate translated audio"** and **"Clone original voice"**
+5. Process and download results
 
-**Supported formats:** MP4, AVI, MOV, MKV, WebM (max 500MB)
-
-### 4. Audio Recording
-
-**Upload audio files with speaker diarization:**
-
+### 5. Audio Recording
 1. Go to http://localhost:8080/recording.html
 2. Upload an audio file
-3. Enable **"Speaker Diarization"** for multi-speaker audio
-4. Enable **"Audio Enhancement"** for noisy recordings
-5. Process and view results with speaker-labeled segments
+3. Optional: enable **Speaker Diarization** or **Audio Enhancement**
+4. Process and view results
 
 ## 🔧 Configuration
 
 ### Environment Variables (.env)
-
 ```bash
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5433
-DB_USER=audio_translator
-DB_PASSWORD=audio_translator_pass
-DB_NAME=audio_translator
-
-# HuggingFace Token (required for speaker diarization)
-HF_TOKEN=your_token_here
+# HuggingFace token (required for diarization)
+HF_TOKEN=your_huggingface_token_here
 
 # CORS (optional - leave empty for development)
 ALLOWED_ORIGINS=
 
-# Speaker Diarization Tuning
-SPEAKER_SIM_THRESHOLD=0.82                     # Embedding similarity threshold
-MIN_EMBED_DURATION=0.8                          # Min seconds for speaker embedding
-SPEAKER_OVERLAP_RATIO_THRESHOLD=0.25            # Overlap detection threshold
-SPEAKER_CONFIDENCE_THRESHOLD=0.55               # Min confidence for speaker label
-SPEAKER_PROFILE_TTL_SECONDS=3600                # Idle time before profile expires
-SPEAKER_PROFILE_PERSIST_INTERVAL_SECONDS=15     # Persistence interval
+# Diarization tuning
+SPEAKER_SIM_THRESHOLD=0.82
+MIN_EMBED_DURATION=0.8
+SPEAKER_OVERLAP_RATIO_THRESHOLD=0.25
+SPEAKER_CONFIDENCE_THRESHOLD=0.55
+SPEAKER_PROFILE_TTL_SECONDS=3600
+SPEAKER_PROFILE_CLEANUP_INTERVAL_SECONDS=300
+SPEAKER_PROFILE_STORE_URL=
+SPEAKER_PROFILE_PERSIST_INTERVAL_SECONDS=15
+SPEAKER_PROFILE_DB_TTL_SECONDS=86400
+SPEAKER_PROFILE_DB_CLEANUP_INTERVAL_SECONDS=300
 
-# Speaker Profile Database Cleanup
-SPEAKER_PROFILE_DB_TTL_SECONDS=86400            # Delete profiles older than 24h
-SPEAKER_PROFILE_DB_CLEANUP_INTERVAL_SECONDS=300 # Run cleanup every 5 minutes
+# Keycloak JWT verification
+KEYCLOAK_ISSUER=
+KEYCLOAK_JWKS_URL=
+KEYCLOAK_AUDIENCE=
+
+# Backend service URLs
+ASR_BASE_URL=http://127.0.0.1:8003
+TRANSLATION_BASE_URL=http://127.0.0.1:8004
+TTS_BASE_URL=http://127.0.0.1:8005
+EMBEDDING_BASE_URL=http://127.0.0.1:8006
+LLM_BASE_URL=http://127.0.0.1:8007
+OLLAMA_MODEL=llama3.2:3b
+```
+
+### Frontend Config (web/config.json)
+```json
+{
+  "keycloak": {
+    "issuer": "http://localhost:8180/realms/audio-transcriber",
+    "clientId": "audio-translator-client",
+    "scope": "openid profile email"
+  },
+  "services": {
+    "asrBaseUrl": "http://localhost:8003",
+    "translationBaseUrl": "http://localhost:8004",
+    "ttsBaseUrl": "http://localhost:8005",
+    "embeddingBaseUrl": "http://localhost:8006",
+    "llmBaseUrl": "http://localhost:8007"
+  }
+}
 ```
 
 ### Whisper Model Selection
-
 Edit `services/asr_py/app.py`:
 ```python
 MODEL_NAME = "base"  # Options: tiny, base, small, medium, large
 ```
 
-**Model sizes:**
-- `tiny` - Fastest, less accurate (~40MB)
-- `base` - Fast, good for real-time (~75MB) **[Default]**
-- `small` - Better accuracy (~244MB)
-- `medium` - High accuracy, slower (~769MB)
-- `large` - Best accuracy, very slow (~1.5GB)
-
-### Server Timing Configuration
-
+### Streaming Timing Configuration
 Edit `cmd/server/main.go`:
 ```go
 srv := session.NewServer(session.Config{
-    ASRBaseURL:    "http://127.0.0.1:8003",
     PollInterval:  800 * time.Millisecond,  // ASR polling frequency
     WindowSeconds: 8,                        // Audio buffer size
     FinalizeAfter: 500 * time.Millisecond,  // Text stabilization time
 })
 ```
 
-## 🛠️ Development Guide
+### TTS Behavior (gTTS fallback + XTTS v2)
+- The TTS service starts in **gTTS fallback** mode while XTTS v2 loads
+- XTTS v2 enables higher quality and **voice cloning**
+- If XTTS is unavailable, the system automatically falls back to gTTS
 
-### Adding a New Feature
-
-Follow the feature-based architecture pattern:
-
-1. **Create feature directory:**
-   ```bash
-   mkdir -p web/features/myfeature
-   ```
-
-2. **Create HTML file:**
-   ```html
-   <!-- web/features/myfeature/myfeature.html -->
-   <!DOCTYPE html>
-   <html>
-   <head>
-       <link rel="stylesheet" href="../../assets/css/styles.css">
-   </head>
-   <body>
-       <!-- Your UI here -->
-       <script type="module" src="myfeature.js"></script>
-   </body>
-   </html>
-   ```
-
-3. **Create JavaScript module:**
-   ```javascript
-   // web/features/myfeature/myfeature.js
-   import { convertToPCM16 } from '/assets/js/audio-processor.js';
-   import { escapeHtml } from '/assets/js/utils.js';
-
-   // Your feature logic here
-   ```
-
-4. **Add route redirect in Go server:**
-   ```go
-   // cmd/server/main.go
-   http.HandleFunc("/myfeature.html", func(w http.ResponseWriter, r *http.Request) {
-       http.ServeFile(w, r, "./web/features/myfeature/myfeature.html")
-   })
-   ```
-
-5. **Rebuild and test:**
-   ```bash
-   go build -o bin/server cmd/server/main.go
-   ./start-services.sh
-   ```
-
-### Code Style Guidelines
-
-**JavaScript:**
-- Use ES6 modules (`import`/`export`)
-- Absolute paths for imports (`/assets/js/...`)
-- Always escape user-generated content with `escapeHtml()`
-- Use event delegation for dynamic elements
-- Store data in `data-*` attributes, not inline handlers
-
-**CSS:**
-- Use CSS variables from `variables.css`
-- Create new modular CSS files for feature-specific styles
-- Import in `styles.css` using `@import`
-
-**Go:**
-- Follow standard Go conventions
-- Use structured logging
-- Add error handling for all external calls
-- Use environment variables for configuration
-
-### Database Migrations
-
-Add new migrations in `migrations/` directory:
-
-```sql
--- migrations/006_your_feature.sql
-CREATE TABLE IF NOT EXISTS your_table (
-    id SERIAL PRIMARY KEY,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+Check status:
+```bash
+curl http://127.0.0.1:8005/health
 ```
 
-Apply manually:
+### Voice Cloning Notes
+- XTTS v2 supports voice cloning for multiple languages
+- Long text is chunked; if token limits are exceeded, it falls back to gTTS
+- First run downloads ~1.8GB model (cached in Docker volume)
+
+## 🔐 Keycloak Authentication
+
+1. Create a realm (e.g. `audio-transcriber`)
+2. Create a public client (e.g. `audio-translator-client`)
+3. Set valid redirect URIs to `http://localhost:8080/*`
+4. Set web origins to `http://localhost:8080`
+5. Enable self-registration if desired
+6. Update:
+   - `KEYCLOAK_ISSUER` in `.env`
+   - `web/config.json` `keycloak.issuer`
+
+Meeting history and chat are account-scoped and require login.
+
+## 🧾 Meeting Minutes + Backfill
+
+Minutes are generated automatically after a meeting ends.
+
+To backfill minutes for existing meetings:
 ```bash
-cat migrations/006_your_feature.sql | docker exec -i audio-translator-postgres-1 psql -U audio_translator -d audio_translator
+# Requires LLM_BASE_URL and OLLAMA_MODEL in .env
+go run cmd/backfill-minutes/main.go
 ```
 
 ## 🐛 Troubleshooting
@@ -428,32 +324,19 @@ cat migrations/006_your_feature.sql | docker exec -i audio-translator-postgres-1
 - Falls back to gTTS while downloading
 - Check status: `curl http://localhost:8005/health`
 
-## 📊 Performance Tips
+## 📊 Docker & Performance Notes
 
-### For Real-time Streaming
-- Use `base` or `tiny` Whisper model for faster response
-- Reduce `PollInterval` to 500ms for quicker updates
-- Decrease `WindowSeconds` to 5-6 for shorter latency
+- Docker images run as non-root and use BuildKit cache mounts for faster rebuilds
+- Resource limits are set in `docker-compose.yml` to avoid a single service starving the host
+- ASR uses CUDA runtime images for smaller footprints
 
-### For Accuracy
-- Use `small` or `medium` Whisper model
-- Increase `FinalizeAfter` to 900ms to reduce partial updates
-- Enable audio enhancement for noisy recordings
+## 🧭 Roadmap (Production Hardening)
 
-### For Meetings
-- Individual device mode has lower latency than shared room
-- Limit participants to 10-15 for best performance
-- Use wired internet connection when possible
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Follow the existing code structure
-2. Use shared utilities instead of duplicating code
-3. Add comments for complex logic
-4. Test thoroughly before submitting
-5. Update documentation for new features
+- HTTPS/TLS via reverse proxy
+- API authentication + rate limiting
+- Secrets management (vault or Docker secrets)
+- Integration tests + structured logging
+- Monitoring (Prometheus/Grafana)
 
 ## 🙏 Acknowledgments
 
@@ -461,5 +344,3 @@ Contributions are welcome! Please:
 - XTTS v2 for text-to-speech
 - Pyannote for speaker diarization
 - Google Translate API for translations
-
----
