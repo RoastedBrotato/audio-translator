@@ -1,6 +1,7 @@
 import { convertToPCM16, resampleAudio } from '../../assets/js/audio-processor.js';
 import { escapeHtml, downloadBlob, postJsonWithAuth } from '../../assets/js/utils.js';
 import { getConfig } from '../../assets/js/config.js';
+import { getSpeakerStyle, formatSpeakerLabelText, getSpeakerLabelClasses } from '../../components/speaker-display/speaker-display.js';
 
 let appConfig = null;
 
@@ -256,32 +257,6 @@ async function translateSegment(text, index) {
   }
 }
 
-// Speaker color mapping
-const speakerColors = {
-  'SPEAKER_00': { bg: 'var(--speaker-0-bg)', border: 'var(--speaker-0-border)', align: 'left', name: 'Person 1' },
-  'SPEAKER_01': { bg: 'var(--speaker-1-bg)', border: 'var(--speaker-1-border)', align: 'right', name: 'Person 2' },
-  'SPEAKER_02': { bg: 'var(--speaker-2-bg)', border: 'var(--speaker-2-border)', align: 'left', name: 'Person 3' },
-  'SPEAKER_03': { bg: 'var(--speaker-3-bg)', border: 'var(--speaker-3-border)', align: 'right', name: 'Person 4' }
-};
-
-// Get speaker style (cycles through colors if more than 4 speakers)
-function getSpeakerStyle(speaker) {
-  const speakerKeys = Object.keys(speakerColors);
-  const speakerKey = speakerKeys[parseInt(speaker.split('_')[1] || '0') % speakerKeys.length];
-  return speakerColors[speakerKey];
-}
-
-function formatSpeakerLabelText(defaultName, speakerLowConfidence, speakerOverlap) {
-  let label = defaultName || 'Speaker';
-  if (speakerLowConfidence) {
-    label = `${label} · Unknown`;
-  }
-  if (speakerOverlap) {
-    label = `${label} · Overlap`;
-  }
-  return label;
-}
-
 function addTranslationToUI(segment) {
   const div = document.createElement('div');
 
@@ -289,11 +264,7 @@ function addTranslationToUI(segment) {
     // Chat bubble style with speaker labels
     const style = getSpeakerStyle(segment.speaker);
     const labelText = formatSpeakerLabelText(style.name, segment.speakerLowConfidence, segment.speakerOverlap);
-    const labelClass = [
-      'speaker-label',
-      segment.speakerLowConfidence ? 'speaker-uncertain' : '',
-      segment.speakerOverlap ? 'speaker-overlap' : ''
-    ].filter(Boolean).join(' ');
+    const labelClass = getSpeakerLabelClasses(segment.speakerLowConfidence, segment.speakerOverlap);
 
     div.className = `translation-bubble translation-${style.align}`;
     div.innerHTML = `

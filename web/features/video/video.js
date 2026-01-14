@@ -1,5 +1,6 @@
 import { formatDuration } from '../../assets/js/audio-processor.js';
 import { getAccessToken, postJsonWithAuth } from '../../assets/js/utils.js';
+import { ProgressManager } from '../../components/progress-manager/progress-manager.js';
 
 // Video upload and processing script
 const uploadArea = document.getElementById('uploadArea');
@@ -51,19 +52,6 @@ function checkVoiceCloningSupport() {
 // Listen for target language changes
 targetLang.addEventListener('change', checkVoiceCloningSupport);
 cloneVoice.addEventListener('change', checkVoiceCloningSupport);
-
-// Stage emoji mappings for better UX
-const stageEmojis = {
-    'upload': '📤',
-    'saving': '💾',
-    'extraction': '🎵',
-    'detection': '🔍',
-    'transcription': '📝',
-    'translation': '🌍',
-    'tts': '🔊',
-    'processing': '⚙️',
-    'complete': '✅'
-};
 
 // Click to upload
 uploadArea.addEventListener('click', () => {
@@ -185,115 +173,88 @@ async function startUpload(forceProcessing) {
         }
 
         currentSessionId = data.sessionId;
-        
-        // Connect to progress WebSocket
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/progress/${data.sessionId}`;
-        progressWS = new WebSocket(wsUrl);
-        
-        progressWS.onopen = () => {
-            console.log('Progress WebSocket connected');
-        };
-        
-        progressWS.onmessage = async (event) => {
-            const update = JSON.parse(event.data);
-            console.log('Progress update:', update);
-            
-            // Update progress bar
-            progressFill.style.width = `${update.progress}%`;
-            
-            // Update stage indicator
-            const emoji = stageEmojis[update.stage] || '⏳';
-            progressStage.textContent = `${emoji} ${update.stage.toUpperCase()}`;
-            
-            // Update progress text
-            progressText.textContent = update.message;
-            
-            // Check for errors
-            if (update.error) {
-                throw new Error(update.message || 'Processing failed');
-            }
-            
-            // Check for completion
-            if (update.stage === 'complete') {
-                progressWS.close();
-                progressWS = null;
-                
-                // Display results if available
-                if (update.results) {
-                    if (update.results.existing) {
-                        const reuse = confirm('We found a previous upload for this file. Use existing result?');
-                        if (!reuse) {
-                            progressContainer.classList.remove('show');
-                            uploadBtn.disabled = false;
-                            clearBtn.disabled = false;
-                            await startUpload(true);
-                            return;
-                        }
+
+        // Create progress manager and connect to WebSocket
+        const progressManager = new ProgressManager(data.sessionId, {
+            progressFill,
+            progressText,
+            progressStage
+        });
+
+        await progressManager.connect();
+
+        // Store reference for cleanup
+        progressWS = progressManager;
+
+        // Handle completion
+        progressManager.onComplete(async (update) => {
+            // Display results if available
+            if (update.results) {
+                if (update.results.existing) {
+                    const reuse = confirm('We found a previous upload for this file. Use existing result?');
+                    if (!reuse) {
                         progressContainer.classList.remove('show');
                         uploadBtn.disabled = false;
                         clearBtn.disabled = false;
-                        showError('Using existing upload. No new processing was done.');
+                        await startUpload(true);
                         return;
                     }
-                    transcription.textContent = update.results.transcription || 'No transcription available';
-                    translation.textContent = update.results.translation || 'No translation available';
-                    duration.textContent = update.results.duration ? formatDuration(update.results.duration) : 'Unknown';
-                    
-                    // Store video path and show download button if TTS was generated
-                    if (update.results.videoPath) {
-                        videoPath = update.results.videoPath;
-                        downloadBtn.classList.add('show');
-                    } else {
-                        downloadBtn.classList.remove('show');
-                    }
-                    
-                    // Show detected language if available
-                    if (update.results.detectedLang) {
-                        console.log('Detected language:', update.results.detectedLang);
-                    }
-
-                    if (!update.results.existing) {
-                        await postJsonWithAuth('/api/history/video', {
-                        sessionId: currentSessionId,
-                        filename: selectedFile ? selectedFile.name : 'upload',
-                        transcription: update.results.transcription || '',
-                        translation: update.results.translation || '',
-                        videoPath: update.results.minioVideoKey || '',
-                        audioPath: update.results.minioAudioKey || '',
-                        ttsPath: update.results.minioTtsKey || '',
-                        sourceLang: sourceLang.value,
-                        targetLang: targetLang.value,
-                        durationSeconds: update.results.duration ? Math.round(update.results.duration) : 0
-                        });
-                    }
-                }
-                
-                // Wait a bit then show results
-                setTimeout(() => {
                     progressContainer.classList.remove('show');
-                    if (update.results) {
-                        results.classList.add('show');
-                    }
-                    
-                    // Re-enable buttons
                     uploadBtn.disabled = false;
                     clearBtn.disabled = false;
-                }, 500);
+                    showError('Using existing upload. No new processing was done.');
+                    return;
+                }
+                transcription.textContent = update.results.transcription || 'No transcription available';
+                translation.textContent = update.results.translation || 'No translation available';
+                duration.textContent = update.results.duration ? formatDuration(update.results.duration) : 'Unknown';
+
+                // Store video path and show download button if TTS was generated
+                if (update.results.videoPath) {
+                    videoPath = update.results.videoPath;
+                    downloadBtn.classList.add('show');
+                } else {
+                    downloadBtn.classList.remove('show');
+                }
+
+                // Show detected language if available
+                if (update.results.detectedLang) {
+                    console.log('Detected language:', update.results.detectedLang);
+                }
+
+                if (!update.results.existing) {
+                    await postJsonWithAuth('/api/history/video', {
+                    sessionId: currentSessionId,
+                    filename: selectedFile ? selectedFile.name : 'upload',
+                    transcription: update.results.transcription || '',
+                    translation: update.results.translation || '',
+                    videoPath: update.results.minioVideoKey || '',
+                    audioPath: update.results.minioAudioKey || '',
+                    ttsPath: update.results.minioTtsKey || '',
+                    sourceLang: sourceLang.value,
+                    targetLang: targetLang.value,
+                    durationSeconds: update.results.duration ? Math.round(update.results.duration) : 0
+                    });
+                }
             }
-        };
-        
-        progressWS.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            if (progressWS) {
-                progressWS.close();
-                progressWS = null;
-            }
-        };
-        
-        progressWS.onclose = () => {
-            console.log('Progress WebSocket closed');
-        };
+
+            // Wait a bit then show results
+            setTimeout(() => {
+                progressContainer.classList.remove('show');
+                if (update.results) {
+                    results.classList.add('show');
+                }
+
+                // Re-enable buttons
+                uploadBtn.disabled = false;
+                clearBtn.disabled = false;
+            }, 500);
+        });
+
+        // Handle errors
+        progressManager.onError((error, update) => {
+            throw error;
+        });
         
     } catch (error) {
         console.error('Error:', error);

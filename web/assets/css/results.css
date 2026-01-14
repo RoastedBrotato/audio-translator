@@ -1,0 +1,56 @@
+/* ============================================
+   Results Display Styles
+   ============================================ */
+
+.results {
+    background: var(--bg-white);
+    padding: 30px;
+    border-radius: 12px;
+    margin: 20px 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    display: none;
+    flex-direction: column;
+}
+
+.results.show {
+    display: flex;
+}
+
+.result-section {
+    margin: 20px 0;
+    padding: 20px;
+    background: var(--bg-light);
+    border-radius: 8px;
+    border-left: 4px solid var(--primary-color);
+}
+
+.result-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.result-content {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    unicode-bidi: plaintext;
+}
+
+.error-message {
+    background: rgba(239, 68, 68, 0.15);
+    color: #b91c1c;
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin: 15px 0;
+    border-left: 4px solid #b91c1c;
+    display: none;
+}
+
+.error-message.show {
+    display: block;
+}

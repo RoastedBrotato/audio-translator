@@ -1,5 +1,7 @@
 import { formatDuration } from '../../assets/js/audio-processor.js';
 import { escapeHtml, downloadBlob, getAccessToken, postJsonWithAuth } from '../../assets/js/utils.js';
+import { getSpeakerStyle, formatSpeakerLabelText, getSpeakerLabelClasses } from '../../components/speaker-display/speaker-display.js';
+import { ProgressManager } from '../../components/progress-manager/progress-manager.js';
 
 // Audio upload and translation script
 const uploadArea = document.getElementById('uploadArea');
@@ -29,32 +31,6 @@ let progressWS = null;
 let resultData = null;
 let currentSessionId = null;
 
-// Speaker color mapping (same as streaming)
-const speakerColors = {
-  'SPEAKER_00': { bg: 'var(--speaker-0-bg)', border: 'var(--speaker-0-border)', align: 'left', name: 'Person 1' },
-  'SPEAKER_01': { bg: 'var(--speaker-1-bg)', border: 'var(--speaker-1-border)', align: 'right', name: 'Person 2' },
-  'SPEAKER_02': { bg: 'var(--speaker-2-bg)', border: 'var(--speaker-2-border)', align: 'left', name: 'Person 3' },
-  'SPEAKER_03': { bg: 'var(--speaker-3-bg)', border: 'var(--speaker-3-border)', align: 'right', name: 'Person 4' }
-};
-
-// Get speaker style
-function getSpeakerStyle(speaker) {
-  const speakerKeys = Object.keys(speakerColors);
-  const speakerKey = speakerKeys[parseInt(speaker.split('_')[1] || '0') % speakerKeys.length];
-  return speakerColors[speakerKey];
-}
-
-function formatSpeakerLabelText(defaultName, speakerLowConfidence, speakerOverlap) {
-    let label = defaultName || 'Speaker';
-    if (speakerLowConfidence) {
-        label = `${label} · Unknown`;
-    }
-    if (speakerOverlap) {
-        label = `${label} · Overlap`;
-    }
-    return label;
-}
-
 // Display segments with speaker bubbles
 function displaySegmentsWithSpeakers(segments) {
     // Clear the result sections and convert to bubble display
@@ -82,11 +58,7 @@ function displaySegmentsWithSpeakers(segments) {
         const speaker = segment.speaker || 'SPEAKER_00';
         const style = getSpeakerStyle(speaker);
         const labelText = formatSpeakerLabelText(style.name, segment.speaker_low_confidence, segment.speaker_overlap);
-        const labelClass = [
-            'speaker-label',
-            segment.speaker_low_confidence ? 'speaker-uncertain' : '',
-            segment.speaker_overlap ? 'speaker-overlap' : ''
-        ].filter(Boolean).join(' ');
+        const labelClass = getSpeakerLabelClasses(segment.speaker_low_confidence, segment.speaker_overlap);
 
         const bubble = document.createElement('div');
         bubble.className = `translation-bubble translation-${style.align}`;
@@ -101,17 +73,6 @@ function displaySegmentsWithSpeakers(segments) {
         bubblesContainer.appendChild(bubble);
     });
 }
-
-// Stage emoji mappings
-const stageEmojis = {
-    'upload': '📤',
-    'saving': '💾',
-    'detection': '🔍',
-    'transcription': '📝',
-    'translation': '🌍',
-    'processing': '⚙️',
-    'complete': '✅'
-};
 
 // Click to upload
 uploadArea.addEventListener('click', () => {
@@ -233,125 +194,98 @@ async function startUpload(forceProcessing) {
 
         currentSessionId = data.sessionId;
 
-        // Connect to progress WebSocket
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/progress/${data.sessionId}`;
-        progressWS = new WebSocket(wsUrl);
+        // Create progress manager and connect to WebSocket
+        const progressManager = new ProgressManager(data.sessionId, {
+            progressFill,
+            progressText,
+            progressStage
+        });
 
-        progressWS.onopen = () => {
-            console.log('Progress WebSocket connected');
-        };
+        await progressManager.connect();
 
-        progressWS.onmessage = async (event) => {
-            const update = JSON.parse(event.data);
-            console.log('Progress update:', update);
+        // Store reference for cleanup
+        progressWS = progressManager;
 
-            // Update progress bar
-            progressFill.style.width = `${update.progress}%`;
-
-            // Update stage indicator
-            const emoji = stageEmojis[update.stage] || '⏳';
-            progressStage.textContent = `${emoji} ${update.stage.toUpperCase()}`;
-
-            // Update progress text
-            progressText.textContent = update.message;
-
-            // Check for errors
-            if (update.error) {
-                throw new Error(update.message || 'Processing failed');
-            }
-
-            // Check for completion
-            if (update.stage === 'complete') {
-                progressWS.close();
-                progressWS = null;
-
-                // Store results
-                if (update.results) {
-                    if (update.results.existing) {
-                        const reuse = confirm('We found a previous upload for this file. Use existing result?');
-                        if (!reuse) {
-                            progressContainer.classList.remove('show');
-                            uploadBtn.disabled = false;
-                            clearBtn.disabled = false;
-                            await startUpload(true);
-                            return;
-                        }
+        // Handle completion
+        progressManager.onComplete(async (update) => {
+            // Store results
+            if (update.results) {
+                if (update.results.existing) {
+                    const reuse = confirm('We found a previous upload for this file. Use existing result?');
+                    if (!reuse) {
                         progressContainer.classList.remove('show');
                         uploadBtn.disabled = false;
                         clearBtn.disabled = false;
-                        showError('Using existing upload. No new processing was done.');
+                        await startUpload(true);
                         return;
                     }
-                    resultData = {
-                        transcription: update.results.transcription || 'No transcription available',
-                        translation: update.results.translation || 'No translation available',
-                        detectedLang: update.results.detectedLang,
-                        duration: update.results.duration,
-                        sourceLang: sourceLang.value,
-                        targetLang: targetLang.value,
-                        fileName: selectedFile.name,
-                        segments: update.results.segments || null,
-                        numSpeakers: update.results.num_speakers || 0
-                    };
-
-                    // Display results
-                    if (resultData.segments && resultData.segments.length > 0 && resultData.numSpeakers > 1) {
-                        // Display with speaker bubbles
-                        displaySegmentsWithSpeakers(resultData.segments);
-                    } else {
-                        // Simple text display
-                        transcription.textContent = resultData.transcription;
-                        translation.textContent = resultData.translation;
-                    }
-
-                    // Log detected language and speakers
-                    if (update.results.detectedLang) {
-                        console.log('Detected language:', update.results.detectedLang);
-                    }
-                    if (update.results.num_speakers) {
-                        console.log(`👥 Detected ${update.results.num_speakers} speaker(s)`);
-                    }
-
-                    await postJsonWithAuth('/api/history/audio', {
-                        sessionId: currentSessionId,
-                        filename: selectedFile ? selectedFile.name : 'upload',
-                        transcription: update.results.transcription || '',
-                        translation: update.results.translation || '',
-                        audioPath: update.results.minioAudioKey || '',
-                        sourceLang: sourceLang.value,
-                        targetLang: targetLang.value,
-                        hasDiarization: enableDiarization.checked || (update.results.segments && update.results.segments.length > 0),
-                        numSpeakers: update.results.num_speakers || 0,
-                        segments: update.results.segments || []
-                    });
-                }
-
-                // Wait a bit then show results
-                setTimeout(() => {
                     progressContainer.classList.remove('show');
-                    if (resultData) {
-                        results.classList.add('show');
-                    }
-
-                    // Re-enable buttons
                     uploadBtn.disabled = false;
                     clearBtn.disabled = false;
-                }, 500);
-            }
-        };
+                    showError('Using existing upload. No new processing was done.');
+                    return;
+                }
+                resultData = {
+                    transcription: update.results.transcription || 'No transcription available',
+                    translation: update.results.translation || 'No translation available',
+                    detectedLang: update.results.detectedLang,
+                    duration: update.results.duration,
+                    sourceLang: sourceLang.value,
+                    targetLang: targetLang.value,
+                    fileName: selectedFile.name,
+                    segments: update.results.segments || null,
+                    numSpeakers: update.results.num_speakers || 0
+                };
 
-        progressWS.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            if (progressWS) {
-                progressWS.close();
-                progressWS = null;
-            }
-        };
+                // Display results
+                if (resultData.segments && resultData.segments.length > 0 && resultData.numSpeakers > 1) {
+                    // Display with speaker bubbles
+                    displaySegmentsWithSpeakers(resultData.segments);
+                } else {
+                    // Simple text display
+                    transcription.textContent = resultData.transcription;
+                    translation.textContent = resultData.translation;
+                }
 
-        progressWS.onclose = () => {
-            console.log('Progress WebSocket closed');
-        };
+                // Log detected language and speakers
+                if (update.results.detectedLang) {
+                    console.log('Detected language:', update.results.detectedLang);
+                }
+                if (update.results.num_speakers) {
+                    console.log(`👥 Detected ${update.results.num_speakers} speaker(s)`);
+                }
+
+                await postJsonWithAuth('/api/history/audio', {
+                    sessionId: currentSessionId,
+                    filename: selectedFile ? selectedFile.name : 'upload',
+                    transcription: update.results.transcription || '',
+                    translation: update.results.translation || '',
+                    audioPath: update.results.minioAudioKey || '',
+                    sourceLang: sourceLang.value,
+                    targetLang: targetLang.value,
+                    hasDiarization: enableDiarization.checked || (update.results.segments && update.results.segments.length > 0),
+                    numSpeakers: update.results.num_speakers || 0,
+                    segments: update.results.segments || []
+                });
+            }
+
+            // Wait a bit then show results
+            setTimeout(() => {
+                progressContainer.classList.remove('show');
+                if (resultData) {
+                    results.classList.add('show');
+                }
+
+                // Re-enable buttons
+                uploadBtn.disabled = false;
+                clearBtn.disabled = false;
+            }, 500);
+        });
+
+        // Handle errors
+        progressManager.onError((error, update) => {
+            throw error;
+        });
 
     } catch (error) {
         console.error('Error:', error);

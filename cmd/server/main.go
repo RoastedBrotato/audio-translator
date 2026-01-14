@@ -1090,7 +1090,12 @@ func min(a, b int) int {
 
 func handleCreateMeeting(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
 		return
 	}
 
@@ -1119,7 +1124,12 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request, keycloakVerifie
 
 	user, err := maybeAuthenticateUserFromRequest(keycloakVerifier, r)
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid or expired authentication token",
+		})
 		return
 	}
 	var userID *int
@@ -1153,14 +1163,24 @@ func handleCreateMeeting(w http.ResponseWriter, r *http.Request, keycloakVerifie
 
 func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
 		return
 	}
 
 	// Extract room code from URL path
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
-		http.Error(w, "Invalid room code", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid room code",
+		})
 		return
 	}
 	roomCode := pathParts[3]
@@ -1172,13 +1192,23 @@ func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meet
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid request body",
+		})
 		return
 	}
 
 	// Validate inputs
 	if req.ParticipantName == "" {
-		http.Error(w, "Participant name is required", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Participant name is required",
+		})
 		return
 	}
 	if req.TargetLanguage == "" {
@@ -1217,7 +1247,12 @@ func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meet
 
 	user, err := maybeAuthenticateUserFromRequest(keycloakVerifier, r)
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid or expired authentication token",
+		})
 		return
 	}
 	var userID *int
