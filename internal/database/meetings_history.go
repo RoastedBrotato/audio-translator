@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -106,6 +107,8 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 	defer rows.Close()
 
 	var meetings []MeetingHistoryItem
+	var meetingIDs []string
+
 	for rows.Next() {
 		var item MeetingHistoryItem
 		var endedAt sql.NullTime
@@ -139,20 +142,31 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 			item.MinutesSummary = &minutesSummary.String
 		}
 
-		// Get available languages for this meeting
-		languages, err := getMeetingAvailableLanguages(item.ID)
-		if err != nil {
-			// Don't fail the whole query, just log and continue
-			item.AvailableLanguages = []string{}
-		} else {
-			item.AvailableLanguages = languages
-		}
+		// Initialize empty languages array
+		item.AvailableLanguages = []string{}
 
 		meetings = append(meetings, item)
+		meetingIDs = append(meetingIDs, item.ID)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("error iterating meetings: %w", err)
+	}
+
+	// Fetch all languages in a single query (N+1 -> 1 query optimization)
+	if len(meetingIDs) > 0 {
+		languagesMap, err := getMeetingLanguagesBulk(meetingIDs)
+		if err != nil {
+			// Don't fail the whole query, just log
+			// Meetings will have empty language arrays
+		} else {
+			// Assign languages to each meeting
+			for i := range meetings {
+				if langs, ok := languagesMap[meetings[i].ID]; ok {
+					meetings[i].AvailableLanguages = langs
+				}
+			}
+		}
 	}
 
 	// Get total count
@@ -197,6 +211,49 @@ func getMeetingAvailableLanguages(meetingID string) ([]string, error) {
 	}
 
 	return languages, rows.Err()
+}
+
+// getMeetingLanguagesBulk fetches available languages for multiple meetings in one query
+// Returns a map of meeting_id -> []languages
+// This solves the N+1 query problem
+func getMeetingLanguagesBulk(meetingIDs []string) (map[string][]string, error) {
+	if len(meetingIDs) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	// Build query with placeholders for all meeting IDs
+	placeholders := make([]string, len(meetingIDs))
+	args := make([]interface{}, len(meetingIDs))
+	for i, id := range meetingIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT meeting_id, language
+		FROM meeting_transcript_snapshots
+		WHERE meeting_id IN (%s)
+		ORDER BY meeting_id, language
+	`, strings.Join(placeholders, ","))
+
+	rows, err := DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Build map of meeting_id -> languages
+	result := make(map[string][]string)
+	for rows.Next() {
+		var meetingID, language string
+		if err := rows.Scan(&meetingID, &language); err != nil {
+			return nil, err
+		}
+
+		result[meetingID] = append(result[meetingID], language)
+	}
+
+	return result, rows.Err()
 }
 
 // GetUserMeetingDetail returns detailed meeting info with authorization check

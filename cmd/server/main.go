@@ -61,6 +61,56 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// Helper functions for consistent JSON error responses
+func sendJSONError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"error":   message,
+	})
+}
+
+func sendMethodNotAllowed(w http.ResponseWriter) {
+	sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+}
+
+func sendBadRequest(w http.ResponseWriter, message string) {
+	sendJSONError(w, http.StatusBadRequest, message)
+}
+
+func sendUnauthorized(w http.ResponseWriter, message string) {
+	sendJSONError(w, http.StatusUnauthorized, message)
+}
+
+func sendInternalError(w http.ResponseWriter, message string) {
+	sendJSONError(w, http.StatusInternalServerError, message)
+}
+
+func sendNotFound(w http.ResponseWriter, message string) {
+	sendJSONError(w, http.StatusNotFound, message)
+}
+
+func resolveMeetingID(meetingID string) (string, error) {
+	meeting, err := database.GetMeetingByID(meetingID)
+	if err != nil {
+		return "", err
+	}
+	if meeting != nil {
+		return meeting.ID, nil
+	}
+
+	meeting, err = database.GetMeetingByRoomCode(meetingID)
+	if err != nil {
+		return "", err
+	}
+	if meeting != nil {
+		return meeting.ID, nil
+	}
+
+	return "", nil
+}
+
 type videoUploadResponse struct {
 	Success       bool    `json:"success"`
 	SessionID     string  `json:"sessionId,omitempty"`
@@ -81,31 +131,31 @@ type authResponse struct {
 func handleKeycloakLogin(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
 		if verifier == nil {
-			http.Error(w, "Keycloak auth not configured", http.StatusServiceUnavailable)
+			sendJSONError(w, http.StatusServiceUnavailable, "Keycloak auth not configured")
 			return
 		}
 
 		tokenStr, err := extractBearerToken(r)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			sendJSONError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 
 		claims, err := verifier.VerifyToken(r.Context(), tokenStr)
 		if err != nil {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			sendJSONError(w, http.StatusUnauthorized, "Invalid token")
 			return
 		}
 
 		user, err := upsertUserFromClaims(claims)
 		if err != nil {
 			log.Printf("Keycloak upsert failed: %v", err)
-			http.Error(w, "Failed to persist user", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to persist user")
 			return
 		}
 
@@ -175,7 +225,7 @@ type historyResponse struct {
 func handleCreateVideoHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -186,7 +236,7 @@ func handleCreateVideoHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc 
 
 		var req historyVideoRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -205,7 +255,7 @@ func handleCreateVideoHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc 
 		})
 		if err != nil {
 			log.Printf("Create video history failed: %v", err)
-			http.Error(w, "Failed to store history", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to store history")
 			return
 		}
 
@@ -216,7 +266,7 @@ func handleCreateVideoHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc 
 func handleCreateAudioHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -227,7 +277,7 @@ func handleCreateAudioHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc 
 
 		var req historyAudioRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -247,7 +297,7 @@ func handleCreateAudioHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc 
 		})
 		if err != nil {
 			log.Printf("Create audio history failed: %v", err)
-			http.Error(w, "Failed to store history", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to store history")
 			return
 		}
 
@@ -258,7 +308,7 @@ func handleCreateAudioHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc 
 func handleCreateStreamingHistory(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -269,7 +319,7 @@ func handleCreateStreamingHistory(verifier *auth.KeycloakVerifier) http.HandlerF
 
 		var req historyStreamingRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -284,7 +334,7 @@ func handleCreateStreamingHistory(verifier *auth.KeycloakVerifier) http.HandlerF
 		})
 		if err != nil {
 			log.Printf("Create streaming history failed: %v", err)
-			http.Error(w, "Failed to store history", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to store history")
 			return
 		}
 
@@ -295,7 +345,7 @@ func handleCreateStreamingHistory(verifier *auth.KeycloakVerifier) http.HandlerF
 func handleCreateUserFile(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -306,7 +356,7 @@ func handleCreateUserFile(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 
 		var req userFileRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -323,7 +373,7 @@ func handleCreateUserFile(verifier *auth.KeycloakVerifier) http.HandlerFunc {
 		})
 		if err != nil {
 			log.Printf("Create user file failed: %v", err)
-			http.Error(w, "Failed to store file metadata", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to store file metadata")
 			return
 		}
 
@@ -352,26 +402,26 @@ func extractBearerToken(r *http.Request) (string, error) {
 
 func authenticateUserFromRequest(verifier *auth.KeycloakVerifier, w http.ResponseWriter, r *http.Request) (*database.User, bool) {
 	if verifier == nil {
-		http.Error(w, "Keycloak auth not configured", http.StatusServiceUnavailable)
+		sendJSONError(w, http.StatusServiceUnavailable, "Keycloak auth not configured")
 		return nil, false
 	}
 
 	tokenStr, err := extractBearerToken(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		sendJSONError(w, http.StatusUnauthorized, err.Error())
 		return nil, false
 	}
 
 	claims, err := verifier.VerifyToken(r.Context(), tokenStr)
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		sendJSONError(w, http.StatusUnauthorized, "Invalid token")
 		return nil, false
 	}
 
 	user, err := upsertUserFromClaims(claims)
 	if err != nil {
 		log.Printf("Keycloak upsert failed: %v", err)
-		http.Error(w, "Failed to persist user", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to persist user")
 		return nil, false
 	}
 
@@ -455,7 +505,7 @@ func computeFileHash(path string) (string, error) {
 
 func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, ttsClient *tts.Client, progressMgr *progress.Manager, minioClient *storage.MinioClient, verifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -503,7 +553,7 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 
 	user, err := maybeAuthenticateUserFromRequest(verifier, r)
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		sendJSONError(w, http.StatusUnauthorized, "Invalid token")
 		return
 	}
 	var userID *int
@@ -788,7 +838,7 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request, processor *video.
 
 func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.Processor, asrClient *asr.Client, translator translate.Translator, progressMgr *progress.Manager, minioClient *storage.MinioClient, verifier *auth.KeycloakVerifier) {
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -834,7 +884,7 @@ func handleAudioUpload(w http.ResponseWriter, r *http.Request, processor *video.
 
 	user, err := maybeAuthenticateUserFromRequest(verifier, r)
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		sendJSONError(w, http.StatusUnauthorized, "Invalid token")
 		return
 	}
 	var userID *int
@@ -1284,14 +1334,14 @@ func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meet
 
 func handleGetMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager) {
 	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	// Extract room code from URL path: /api/meetings/K1N-G-A
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
-		http.Error(w, "Invalid room code", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid room code")
 		return
 	}
 	roomCode := pathParts[3]
@@ -1353,13 +1403,13 @@ func handleUpdateSpeakerName(w http.ResponseWriter, r *http.Request, roomManager
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	// Validate inputs
 	if req.SpeakerName == "" {
-		http.Error(w, "Speaker name is required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Speaker name is required")
 		return
 	}
 
@@ -1423,24 +1473,24 @@ func handleUpdateSpeakerName(w http.ResponseWriter, r *http.Request, roomManager
 
 func handleDownloadTranscript(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, roomCode string) {
 	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	lang := r.URL.Query().Get("lang")
 	if lang == "" {
-		http.Error(w, "lang is required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "lang is required")
 		return
 	}
 
 	mtg, err := getMeetingByCodeOrID(roomCode)
 	if err != nil {
 		log.Printf("Error getting meeting: %v", err)
-		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Failed to find meeting")
 		return
 	}
 	if mtg == nil {
-		http.Error(w, "Meeting not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
 		return
 	}
 
@@ -1462,35 +1512,35 @@ func handleDownloadTranscript(w http.ResponseWriter, r *http.Request, roomManage
 
 func handleDownloadTranscriptSnapshot(w http.ResponseWriter, r *http.Request, roomCode string) {
 	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	lang := r.URL.Query().Get("lang")
 	if lang == "" {
-		http.Error(w, "lang is required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "lang is required")
 		return
 	}
 
 	mtg, err := getMeetingByCodeOrID(roomCode)
 	if err != nil {
 		log.Printf("Error getting meeting: %v", err)
-		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Failed to find meeting")
 		return
 	}
 	if mtg == nil {
-		http.Error(w, "Meeting not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
 		return
 	}
 
 	snapshot, err := database.GetMeetingTranscriptSnapshot(mtg.ID, lang)
 	if err != nil {
 		log.Printf("Failed to get transcript snapshot: %v", err)
-		http.Error(w, "Failed to load transcript snapshot", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to load transcript snapshot")
 		return
 	}
 	if snapshot == nil || snapshot.Transcript == "" {
-		http.Error(w, "Transcript snapshot not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Transcript snapshot not found")
 		return
 	}
 
@@ -1509,25 +1559,25 @@ func handleDownloadTranscriptSnapshot(w http.ResponseWriter, r *http.Request, ro
 
 func handleListTranscriptSnapshots(w http.ResponseWriter, r *http.Request, roomCode string) {
 	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	mtg, err := getMeetingByCodeOrID(roomCode)
 	if err != nil {
 		log.Printf("Error getting meeting: %v", err)
-		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Failed to find meeting")
 		return
 	}
 	if mtg == nil {
-		http.Error(w, "Meeting not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
 		return
 	}
 
 	snapshots, err := database.ListMeetingTranscriptSnapshots(mtg.ID)
 	if err != nil {
 		log.Printf("Failed to list transcript snapshots: %v", err)
-		http.Error(w, "Failed to list transcript snapshots", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to list transcript snapshots")
 		return
 	}
 
@@ -1553,7 +1603,7 @@ func handleListTranscriptSnapshots(w http.ResponseWriter, r *http.Request, roomC
 
 func handleEndMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeting.RoomManager, llmClient *llm.Client, roomCode string) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -1561,39 +1611,39 @@ func handleEndMeeting(w http.ResponseWriter, r *http.Request, roomManager *meeti
 		HostToken string `json:"hostToken"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if req.HostToken == "" {
-		http.Error(w, "Host token required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Host token required")
 		return
 	}
 
 	mtg, err := getMeetingByCodeOrID(roomCode)
 	if err != nil {
 		log.Printf("Error getting meeting: %v", err)
-		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Failed to find meeting")
 		return
 	}
 	if mtg == nil {
-		http.Error(w, "Meeting not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
 		return
 	}
 
 	valid, err := database.ValidateMeetingHostToken(mtg.ID, req.HostToken)
 	if err != nil {
 		log.Printf("Failed to validate host token: %v", err)
-		http.Error(w, "Failed to validate host token", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to validate host token")
 		return
 	}
 	if !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		sendJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	if err := roomManager.EndMeeting(mtg.ID); err != nil {
 		log.Printf("Failed to end meeting: %v", err)
-		http.Error(w, "Failed to end meeting", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to end meeting")
 		return
 	}
 
@@ -1654,7 +1704,7 @@ func handleMeetingOperations(w http.ResponseWriter, r *http.Request, roomManager
 	pathParts := strings.Split(r.URL.Path, "/")
 
 	if len(pathParts) < 4 {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid URL")
 		return
 	}
 
@@ -1714,35 +1764,35 @@ func handleLinkParticipant(w http.ResponseWriter, r *http.Request, keycloakVerif
 		ParticipantID int `json:"participantId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ParticipantID <= 0 {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	mtg, err := getMeetingByCodeOrID(roomCode)
 	if err != nil {
 		log.Printf("Error getting meeting: %v", err)
-		http.Error(w, "Failed to find meeting", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Failed to find meeting")
 		return
 	}
 	if mtg == nil {
-		http.Error(w, "Meeting not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
 		return
 	}
 
 	participant, err := database.GetParticipantByID(req.ParticipantID)
 	if err != nil {
 		log.Printf("Failed to get participant: %v", err)
-		http.Error(w, "Failed to find participant", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to find participant")
 		return
 	}
 	if participant == nil || participant.MeetingID != mtg.ID {
-		http.Error(w, "Participant not found", http.StatusNotFound)
+		sendJSONError(w, http.StatusNotFound, "Participant not found")
 		return
 	}
 
 	if participant.UserID != nil {
 		if *participant.UserID != user.ID {
-			http.Error(w, "Participant already linked", http.StatusConflict)
+			sendJSONError(w, http.StatusConflict, "Participant already linked")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1755,7 +1805,7 @@ func handleLinkParticipant(w http.ResponseWriter, r *http.Request, keycloakVerif
 
 	if err := database.UpdateParticipantUserID(req.ParticipantID, user.ID); err != nil {
 		log.Printf("Failed to link participant: %v", err)
-		http.Error(w, "Failed to link participant", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to link participant")
 		return
 	}
 
@@ -1769,7 +1819,7 @@ func handleLinkParticipant(w http.ResponseWriter, r *http.Request, keycloakVerif
 func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimPrefix(r.URL.Path, "/api/speaker-profiles/")
 	if sessionID == "" || sessionID == r.URL.Path {
-		http.Error(w, "Session ID required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Session ID required")
 		return
 	}
 
@@ -1778,7 +1828,7 @@ func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
 		profiles, err := database.GetSpeakerProfiles(sessionID)
 		if err != nil {
 			log.Printf("Failed to get speaker profiles: %v", err)
-			http.Error(w, "Failed to get speaker profiles", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to get speaker profiles")
 			return
 		}
 
@@ -1814,7 +1864,7 @@ func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
 			Profiles []profilePayload `json:"profiles"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid payload")
 			return
 		}
 
@@ -1837,7 +1887,7 @@ func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
 
 		if err := database.ReplaceSpeakerProfiles(sessionID, profiles); err != nil {
 			log.Printf("Failed to persist speaker profiles: %v", err)
-			http.Error(w, "Failed to persist speaker profiles", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to persist speaker profiles")
 			return
 		}
 
@@ -1849,7 +1899,7 @@ func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if err := database.DeleteSpeakerProfiles(sessionID); err != nil {
 			log.Printf("Failed to delete speaker profiles: %v", err)
-			http.Error(w, "Failed to delete speaker profiles", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to delete speaker profiles")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1857,13 +1907,13 @@ func handleSpeakerProfiles(w http.ResponseWriter, r *http.Request) {
 			"success": true,
 		})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
 func handleSpeakerProfileCleanup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -1884,7 +1934,7 @@ func handleSpeakerProfileCleanup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ttlSeconds <= 0 {
-		http.Error(w, "ttl_seconds is required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "ttl_seconds is required")
 		return
 	}
 
@@ -1892,7 +1942,7 @@ func handleSpeakerProfileCleanup(w http.ResponseWriter, r *http.Request) {
 	deleted, err := database.DeleteExpiredSpeakerProfiles(cutoff)
 	if err != nil {
 		log.Printf("Failed to delete expired speaker profiles: %v", err)
-		http.Error(w, "Failed to delete expired speaker profiles", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to delete expired speaker profiles")
 		return
 	}
 
@@ -2101,7 +2151,7 @@ func main() {
 
 	http.HandleFunc("/recording/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -2112,7 +2162,7 @@ func main() {
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -2143,7 +2193,7 @@ func main() {
 
 	http.HandleFunc("/recording/stop", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -2152,7 +2202,7 @@ func main() {
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -2161,13 +2211,13 @@ func main() {
 		recordingMu.Unlock()
 
 		if !exists {
-			http.Error(w, "Session not found", http.StatusNotFound)
+			sendJSONError(w, http.StatusNotFound, "Session not found")
 			return
 		}
 
 		totalChunks, err := recSession.Stop()
 		if err != nil {
-			http.Error(w, "Failed to stop session", http.StatusInternalServerError)
+			sendJSONError(w, http.StatusInternalServerError, "Failed to stop session")
 			return
 		}
 
@@ -2183,7 +2233,7 @@ func main() {
 	http.HandleFunc("/ws/recording/", func(w http.ResponseWriter, r *http.Request) {
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) < 4 {
-			http.Error(w, "Invalid session ID", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid session ID")
 			return
 		}
 		sessionID := pathParts[3]
@@ -2193,7 +2243,7 @@ func main() {
 		recordingMu.Unlock()
 
 		if !exists {
-			http.Error(w, "Session not found", http.StatusNotFound)
+			sendJSONError(w, http.StatusNotFound, "Session not found")
 			return
 		}
 
@@ -2220,7 +2270,7 @@ func main() {
 		// Extract session ID from URL path
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) < 4 {
-			http.Error(w, "Invalid session ID", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid session ID")
 			return
 		}
 		sessionID := pathParts[3]
@@ -2253,7 +2303,7 @@ func main() {
 
 		// Security check: ensure file exists and is in temp dir
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			http.Error(w, "File not found", http.StatusNotFound)
+			sendJSONError(w, http.StatusNotFound, "File not found")
 			return
 		}
 
@@ -2272,7 +2322,7 @@ func main() {
 	http.HandleFunc("/ws/stream", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("Streaming WebSocket connection requested")
 		// Note: Clients should connect directly to ws://localhost:8003/stream
-		http.Error(w, "Connect to ws://localhost:8003/stream", http.StatusOK)
+		sendJSONError(w, http.StatusOK, "Connect to ws://localhost:8003/stream")
 	})
 
 	// Meeting WebSocket - for real-time meeting rooms
@@ -2280,7 +2330,7 @@ func main() {
 		// Extract meeting ID from URL path
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) < 4 {
-			http.Error(w, "Invalid meeting ID", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid meeting ID")
 			return
 		}
 		meetingID := pathParts[3]
@@ -2296,14 +2346,14 @@ func main() {
 
 		// Validate parameters
 		if participantIDStr == "" || participantName == "" || targetLang == "" {
-			http.Error(w, "Missing required parameters: participantId, participantName, targetLang", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Missing required parameters: participantId, participantName, targetLang")
 			return
 		}
 
 		// Parse participant ID
 		var participantID int
 		if _, err := fmt.Sscanf(participantIDStr, "%d", &participantID); err != nil {
-			http.Error(w, "Invalid participant ID", http.StatusBadRequest)
+			sendJSONError(w, http.StatusBadRequest, "Invalid participant ID")
 			return
 		}
 
@@ -2367,7 +2417,7 @@ func getEnv(key, fallback string) string {
 // handleChatSessions creates a new chat session for a meeting
 func handleChatSessions(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -2377,14 +2427,26 @@ func handleChatSessions(w http.ResponseWriter, r *http.Request, keycloakVerifier
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	if req.MeetingID == "" || req.Language == "" {
-		http.Error(w, "Missing required fields: meetingId, language", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Missing required fields: meetingId, language")
 		return
 	}
+
+	resolvedID, err := resolveMeetingID(req.MeetingID)
+	if err != nil {
+		log.Printf("Failed to resolve meeting: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to resolve meeting")
+		return
+	}
+	if resolvedID == "" {
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
+		return
+	}
+	req.MeetingID = resolvedID
 
 	// Optionally extract user ID from auth token
 	var userID *int
@@ -2407,7 +2469,7 @@ func handleChatSessions(w http.ResponseWriter, r *http.Request, keycloakVerifier
 	session, err := database.CreateChatSession(req.MeetingID, req.Language, userID)
 	if err != nil {
 		log.Printf("Failed to create chat session: %v", err)
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to create session")
 		return
 	}
 
@@ -2418,7 +2480,7 @@ func handleChatSessions(w http.ResponseWriter, r *http.Request, keycloakVerifier
 // handleChatQuery performs a RAG query on a meeting transcript
 func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.QueryEngine, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -2431,14 +2493,26 @@ func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.Qu
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	if req.SessionID == "" || req.Question == "" || req.MeetingID == "" || req.Language == "" {
-		http.Error(w, "Missing required fields: sessionId, question, meetingId, language", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Missing required fields: sessionId, question, meetingId, language")
 		return
 	}
+
+	resolvedID, err := resolveMeetingID(req.MeetingID)
+	if err != nil {
+		log.Printf("Failed to resolve meeting: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to resolve meeting")
+		return
+	}
+	if resolvedID == "" {
+		sendJSONError(w, http.StatusNotFound, "Meeting not found")
+		return
+	}
+	req.MeetingID = resolvedID
 
 	// Default to top 5 chunks
 	if req.TopK == 0 {
@@ -2462,7 +2536,7 @@ func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.Qu
 	answer, chunkIDs, err := queryEngine.Query(req.MeetingID, req.Language, req.Question, req.TopK)
 	if err != nil {
 		log.Printf("RAG query failed: %v", err)
-		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Query failed: %v", err))
 		return
 	}
 
@@ -2493,7 +2567,7 @@ func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.Qu
 // handleListUserMeetings returns all meetings for the authenticated user
 func handleListUserMeetings(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -2525,7 +2599,7 @@ func handleListUserMeetings(w http.ResponseWriter, r *http.Request, keycloakVeri
 	meetings, total, err := database.GetUserMeetings(user.ID, limit, offset, status)
 	if err != nil {
 		log.Printf("Failed to get user meetings: %v", err)
-		http.Error(w, "Failed to get meetings", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to get meetings")
 		return
 	}
 
@@ -2542,7 +2616,7 @@ func handleListUserMeetings(w http.ResponseWriter, r *http.Request, keycloakVeri
 // handleGetUserMeetingDetail returns detailed meeting info
 func handleGetUserMeetingDetail(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -2556,22 +2630,22 @@ func handleGetUserMeetingDetail(w http.ResponseWriter, r *http.Request, keycloak
 	meetingID := strings.TrimSuffix(path, "/")
 
 	if meetingID == "" {
-		http.Error(w, "Meeting ID required", http.StatusBadRequest)
+		sendJSONError(w, http.StatusBadRequest, "Meeting ID required")
 		return
 	}
 
 	detail, err := database.GetUserMeetingDetail(user.ID, meetingID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unauthorized") {
-			http.Error(w, "Unauthorized", http.StatusForbidden)
+			sendJSONError(w, http.StatusForbidden, "Unauthorized")
 			return
 		}
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "Meeting not found", http.StatusNotFound)
+			sendJSONError(w, http.StatusNotFound, "Meeting not found")
 			return
 		}
 		log.Printf("Failed to get meeting detail: %v", err)
-		http.Error(w, "Failed to get meeting", http.StatusInternalServerError)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to get meeting")
 		return
 	}
 
