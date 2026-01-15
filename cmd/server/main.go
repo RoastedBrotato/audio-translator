@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,9 +10,12 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,6 +93,410 @@ func sendInternalError(w http.ResponseWriter, message string) {
 
 func sendNotFound(w http.ResponseWriter, message string) {
 	sendJSONError(w, http.StatusNotFound, message)
+}
+
+type memoryInfo struct {
+	TotalBytes     int64 `json:"totalBytes"`
+	FreeBytes      int64 `json:"freeBytes"`
+	AvailableBytes int64 `json:"availableBytes"`
+	SwapTotalBytes int64 `json:"swapTotalBytes"`
+	SwapFreeBytes  int64 `json:"swapFreeBytes"`
+	SwapUsedBytes  int64 `json:"swapUsedBytes"`
+}
+
+type containerDiagnostics struct {
+	Name             string  `json:"name"`
+	Service          string  `json:"service"`
+	State            string  `json:"state"`
+	Status           string  `json:"status"`
+	Health           string  `json:"health"`
+	MemoryBytes      int64   `json:"memoryBytes"`
+	MemoryLimitBytes int64   `json:"memoryLimitBytes"`
+	MemoryPct        float64 `json:"memoryPct"`
+}
+
+type diagnosticsRecommendation struct {
+	Service string `json:"service"`
+	Action  string `json:"action"`
+	Reason  string `json:"reason"`
+	Command string `json:"command"`
+}
+
+type diagnosticsResponse struct {
+	Timestamp             time.Time                   `json:"timestamp"`
+	Memory                memoryInfo                  `json:"memory"`
+	Containers            []containerDiagnostics       `json:"containers"`
+	Recommendations       []diagnosticsRecommendation `json:"recommendations"`
+	ServiceControlEnabled bool                        `json:"serviceControlEnabled"`
+}
+
+func readMemoryInfo() (memoryInfo, error) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return memoryInfo{}, err
+	}
+
+	var info memoryInfo
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		fields := strings.Fields(value)
+		if len(fields) == 0 {
+			continue
+		}
+		kb, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		bytes := kb * 1024
+
+		switch key {
+		case "MemTotal":
+			info.TotalBytes = bytes
+		case "MemFree":
+			info.FreeBytes = bytes
+		case "MemAvailable":
+			info.AvailableBytes = bytes
+		case "SwapTotal":
+			info.SwapTotalBytes = bytes
+		case "SwapFree":
+			info.SwapFreeBytes = bytes
+		}
+	}
+
+	if info.SwapTotalBytes > 0 {
+		info.SwapUsedBytes = info.SwapTotalBytes - info.SwapFreeBytes
+	}
+	return info, nil
+}
+
+func parseBytes(value string) (int64, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, fmt.Errorf("empty size")
+	}
+
+	upper := strings.ToUpper(trimmed)
+	units := []struct {
+		suffix     string
+		multiplier float64
+	}{
+		{"TIB", 1024 * 1024 * 1024 * 1024},
+		{"TB", 1000 * 1000 * 1000 * 1000},
+		{"GIB", 1024 * 1024 * 1024},
+		{"GB", 1000 * 1000 * 1000},
+		{"MIB", 1024 * 1024},
+		{"MB", 1000 * 1000},
+		{"KIB", 1024},
+		{"KB", 1000},
+		{"B", 1},
+	}
+
+	for _, unit := range units {
+		if strings.HasSuffix(upper, unit.suffix) {
+			number := strings.TrimSpace(upper[:len(upper)-len(unit.suffix)])
+			valueFloat, err := strconv.ParseFloat(number, 64)
+			if err != nil {
+				return 0, err
+			}
+			return int64(valueFloat * unit.multiplier), nil
+		}
+	}
+
+	valueFloat, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(valueFloat), nil
+}
+
+type composeServiceInfo struct {
+	Service string `json:"Service"`
+	Name    string `json:"Name"`
+	State   string `json:"State"`
+	Status  string `json:"Status"`
+	Health  string `json:"Health"`
+}
+
+func getComposeServices() ([]composeServiceInfo, error) {
+	cmd := exec.Command("docker", "compose", "ps", "--format", "json")
+	cmd.Env = os.Environ()
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var services []composeServiceInfo
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var service composeServiceInfo
+		if err := json.Unmarshal([]byte(line), &service); err != nil {
+			continue
+		}
+		services = append(services, service)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+func getDockerStats() (map[string]containerDiagnostics, error) {
+	cmd := exec.Command("docker", "stats", "--no-stream", "--format", "{{.Name}}|{{.MemUsage}}|{{.MemPerc}}")
+	cmd.Env = os.Environ()
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make(map[string]containerDiagnostics)
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 3 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		memUsage := strings.TrimSpace(parts[1])
+		memPct := strings.TrimSpace(strings.TrimSuffix(parts[2], "%"))
+
+		usageParts := strings.Split(memUsage, "/")
+		if len(usageParts) != 2 {
+			continue
+		}
+		usageBytes, err := parseBytes(usageParts[0])
+		if err != nil {
+			continue
+		}
+		limitBytes, err := parseBytes(usageParts[1])
+		if err != nil {
+			continue
+		}
+		percent, _ := strconv.ParseFloat(strings.TrimSpace(memPct), 64)
+
+		stats[name] = containerDiagnostics{
+			Name:             name,
+			MemoryBytes:      usageBytes,
+			MemoryLimitBytes: limitBytes,
+			MemoryPct:        percent,
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+func serviceControlEnabled() bool {
+	return strings.EqualFold(os.Getenv("DIAGNOSTICS_ALLOW_SERVICE_CONTROL"), "true")
+}
+
+func isLocalRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return host == "127.0.0.1" || host == "::1" || host == "localhost"
+}
+
+func buildDiagnosticsRecommendations(mem memoryInfo, containers []containerDiagnostics) []diagnosticsRecommendation {
+	const minAvailableBytes = int64(2 * 1024 * 1024 * 1024)
+
+	pressure := mem.AvailableBytes > 0 && mem.AvailableBytes < minAvailableBytes
+	pressure = pressure || mem.SwapUsedBytes > 0
+	if !pressure {
+		return nil
+	}
+
+	serviceHints := map[string]string{
+		"tts_py":        "Text-to-speech service",
+		"asr_streaming": "Real-time ASR service",
+		"ollama":        "LLM inference service",
+		"keycloak":      "Authentication service",
+		"minio":         "Object storage service",
+	}
+
+	sort.Slice(containers, func(i, j int) bool {
+		return containers[i].MemoryBytes > containers[j].MemoryBytes
+	})
+
+	var recs []diagnosticsRecommendation
+	for _, container := range containers {
+		if container.State != "running" {
+			continue
+		}
+		if container.MemoryBytes == 0 {
+			continue
+		}
+		hint, ok := serviceHints[container.Service]
+		if !ok {
+			continue
+		}
+		recs = append(recs, diagnosticsRecommendation{
+			Service: container.Service,
+			Action:  "stop",
+			Reason:  fmt.Sprintf("%s is using %s of memory.", hint, formatBytes(container.MemoryBytes)),
+			Command: fmt.Sprintf("docker compose stop %s", container.Service),
+		})
+		if len(recs) >= 3 {
+			break
+		}
+	}
+
+	return recs
+}
+
+func formatBytes(value int64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%d B", value)
+	}
+	div, exp := int64(unit), 0
+	for n := value / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(value)/float64(div), "KMGTPE"[exp])
+}
+
+func handleDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	if !isLocalRequest(r) {
+		sendJSONError(w, http.StatusForbidden, "Diagnostics available only on localhost")
+		return
+	}
+
+	memInfo, err := readMemoryInfo()
+	if err != nil {
+		log.Printf("Diagnostics memory read failed: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to read memory info")
+		return
+	}
+
+	services, err := getComposeServices()
+	if err != nil {
+		log.Printf("Diagnostics compose ps failed: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to read service status")
+		return
+	}
+
+	stats, err := getDockerStats()
+	if err != nil {
+		log.Printf("Diagnostics docker stats failed: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to read container stats")
+		return
+	}
+
+	containers := make([]containerDiagnostics, 0, len(services))
+	for _, service := range services {
+		container := containerDiagnostics{
+			Name:    service.Name,
+			Service: service.Service,
+			State:   service.State,
+			Status:  service.Status,
+			Health:  service.Health,
+		}
+		if stat, ok := stats[service.Name]; ok {
+			container.MemoryBytes = stat.MemoryBytes
+			container.MemoryLimitBytes = stat.MemoryLimitBytes
+			container.MemoryPct = stat.MemoryPct
+		}
+		containers = append(containers, container)
+	}
+
+	response := diagnosticsResponse{
+		Timestamp:             time.Now().UTC(),
+		Memory:                memInfo,
+		Containers:            containers,
+		Recommendations:       buildDiagnosticsRecommendations(memInfo, containers),
+		ServiceControlEnabled: serviceControlEnabled(),
+	}
+
+	writeJSON(w, response)
+}
+
+func handleDiagnosticsService(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	if !isLocalRequest(r) {
+		sendJSONError(w, http.StatusForbidden, "Diagnostics available only on localhost")
+		return
+	}
+
+	if !serviceControlEnabled() {
+		sendJSONError(w, http.StatusForbidden, "Service control disabled")
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/diagnostics/services/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 {
+		sendJSONError(w, http.StatusBadRequest, "Invalid diagnostics service request")
+		return
+	}
+	serviceName := parts[0]
+	action := parts[1]
+
+	allowedServices := map[string]struct{}{
+		"asr_streaming":    {},
+		"translate_py":     {},
+		"tts_py":           {},
+		"embedding_service": {},
+		"llm_service":      {},
+		"ollama":           {},
+		"postgres":         {},
+		"keycloak":         {},
+		"minio":            {},
+	}
+
+	if _, ok := allowedServices[serviceName]; !ok {
+		sendJSONError(w, http.StatusBadRequest, "Unsupported service name")
+		return
+	}
+
+	if action != "start" && action != "stop" && action != "restart" {
+		sendJSONError(w, http.StatusBadRequest, "Unsupported action")
+		return
+	}
+
+	cmd := exec.Command("docker", "compose", action, serviceName)
+	cmd.Env = os.Environ()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Diagnostics action failed (%s %s): %v (%s)", action, serviceName, err, strings.TrimSpace(string(output)))
+		sendJSONError(w, http.StatusInternalServerError, "Failed to manage service")
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"service": serviceName,
+		"action":  action,
+	})
 }
 
 func resolveMeetingID(meetingID string) (string, error) {
@@ -2142,6 +2550,10 @@ func main() {
 	http.HandleFunc("/api/chat/query", func(w http.ResponseWriter, r *http.Request) {
 		handleChatQuery(w, r, ragQueryEngine, keycloakVerifier)
 	})
+
+	// Diagnostics API endpoints (localhost only)
+	http.HandleFunc("/api/diagnostics", handleDiagnostics)
+	http.HandleFunc("/api/diagnostics/services/", handleDiagnosticsService)
 
 	// Recording session management
 	var (

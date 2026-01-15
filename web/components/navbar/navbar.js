@@ -36,6 +36,9 @@ function createNavbar() {
         <a href="/features/home/overview.html" class="${isActive('/features/home/overview.html') ? 'active' : ''}">
           🧭 How It Works
         </a>
+        <a href="/diagnostics.html" class="${isActive('/diagnostics.html') ? 'active' : ''}">
+          🧪 Diagnostics
+        </a>
       </div>
       <div class="navbar-actions">
         <div class="auth-status" id="authStatus"></div>
