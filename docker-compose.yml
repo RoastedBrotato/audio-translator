@@ -169,7 +169,9 @@ services:
               count: 1
               capabilities: [gpu]
     environment:
-      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=none
+      - CUDA_VISIBLE_DEVICES=
+      - OLLAMA_NUM_GPU=0
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
