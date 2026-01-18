@@ -30,6 +30,7 @@ type GenerateRequest struct {
 	Context     string  `json:"context"`
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 	Temperature float64 `json:"temperature,omitempty"`
+	Language    string  `json:"language,omitempty"`
 }
 
 // GenerateResponse represents the response from the LLM
@@ -38,13 +39,19 @@ type GenerateResponse struct {
 	Model    string `json:"model"`
 }
 
-// Generate generates a response from the LLM based on the prompt and context
+// Generate generates a response from the LLM based on the prompt and context (default English)
 func (c *Client) Generate(prompt, context string, maxTokens int, temperature float64) (string, error) {
+	return c.GenerateWithLanguage(prompt, context, "en", maxTokens, temperature)
+}
+
+// GenerateWithLanguage generates a response from the LLM in the specified language
+func (c *Client) GenerateWithLanguage(prompt, context, language string, maxTokens int, temperature float64) (string, error) {
 	reqBody := GenerateRequest{
 		Prompt:      prompt,
 		Context:     context,
 		MaxTokens:   maxTokens,
 		Temperature: temperature,
+		Language:    language,
 	}
 
 	jsonData, err := json.Marshal(reqBody)

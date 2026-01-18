@@ -46,12 +46,32 @@ logger.info(f"Ollama URL: {OLLAMA_BASE_URL}")
 logger.info(f"Default model: {DEFAULT_MODEL}")
 
 
+# Language instructions for LLM prompts
+LANGUAGE_INSTRUCTIONS = {
+    "en": "Please provide a clear, concise answer in English.",
+    "ar": "يرجى تقديم إجابة واضحة وموجزة باللغة العربية. (Please provide a clear, concise answer in Arabic.)",
+    "ur": "براہ کرم اردو میں واضح اور جامع جواب فراہم کریں۔ (Please provide a clear, concise answer in Urdu.)",
+    "hi": "कृपया हिंदी में स्पष्ट और संक्षिप्त उत्तर प्रदान करें। (Please provide a clear, concise answer in Hindi.)",
+    "ml": "ദയവായി മലയാളത്തിൽ വ്യക്തവും സംക്ഷിപ്തവുമായ ഉത്തരം നൽകുക. (Please provide a clear, concise answer in Malayalam.)",
+    "te": "దయచేసి తెలుగులో స్పష్టమైన మరియు సంక్షిప్త సమాధానాన్ని అందించండి. (Please provide a clear, concise answer in Telugu.)",
+    "ta": "தயவுசெய்து தமிழில் தெளிவான மற்றும் சுருக்கமான பதிலை வழங்கவும். (Please provide a clear, concise answer in Tamil.)",
+    "bn": "দয়া করে বাংলায় স্পষ্ট এবং সংক্ষিপ্ত উত্তর প্রদান করুন। (Please provide a clear, concise answer in Bengali.)",
+    "fr": "Veuillez fournir une réponse claire et concise en français. (Please provide a clear, concise answer in French.)",
+    "es": "Por favor, proporcione una respuesta clara y concisa en español. (Please provide a clear, concise answer in Spanish.)",
+    "de": "Bitte geben Sie eine klare und präzise Antwort auf Deutsch. (Please provide a clear, concise answer in German.)",
+    "zh": "请用中文提供清晰简洁的答案。 (Please provide a clear, concise answer in Chinese.)",
+    "ja": "日本語で明確かつ簡潔な回答を提供してください。 (Please provide a clear, concise answer in Japanese.)",
+    "ko": "한국어로 명확하고 간결한 답변을 제공해주세요. (Please provide a clear, concise answer in Korean.)"
+}
+
+
 # Request/Response models
 class GenerateRequest(BaseModel):
     prompt: str
     context: str = ""
     max_tokens: Optional[int] = 500
     temperature: Optional[float] = 0.7
+    language: Optional[str] = "en"
 
     class Config:
         json_schema_extra = {
@@ -59,7 +79,8 @@ class GenerateRequest(BaseModel):
                 "prompt": "What were the main topics discussed?",
                 "context": "[00:01:23] Alice: We need to discuss the Q4 roadmap...",
                 "max_tokens": 500,
-                "temperature": 0.7
+                "temperature": 0.7,
+                "language": "ar"
             }
         }
 
@@ -90,8 +111,12 @@ async def generate(request: GenerateRequest):
 
         logger.info(f"Generating response for prompt (length: {len(request.prompt)} chars)")
         logger.info(f"Context length: {len(request.context)} chars")
+        logger.info(f"Response language: {request.language}")
 
         # Build full prompt with system instructions and context
+        language = request.language or "en"
+        language_instruction = LANGUAGE_INSTRUCTIONS.get(language, LANGUAGE_INSTRUCTIONS["en"])
+
         full_prompt = f"""You are a helpful AI assistant answering questions about a meeting transcript.
 
 Context from the meeting:
@@ -99,10 +124,12 @@ Context from the meeting:
 
 User question: {request.prompt}
 
-Please provide a clear, concise answer based ONLY on the context provided above.
+{language_instruction}
 - If the user asks for a summary or what was discussed, summarize the key points from the context.
 - If the context is partial, answer with what is available and mention it is based on partial transcript.
-- Only say "I don't have enough information in the transcript to answer that question." when the context is empty or unrelated to the question.
+- Only say "I don't have enough information" (in the target language) when the context is empty or unrelated to the question.
+- Base your answer ONLY on the context provided above.
+- Respond entirely in the requested language.
 
 Answer:"""
 

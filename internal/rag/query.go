@@ -24,9 +24,14 @@ func NewQueryEngine(embeddingClient *embedding.Client, llmClient *llm.Client) *Q
 	}
 }
 
-// Query performs RAG query: retrieve relevant chunks and generate answer
+// Query performs RAG query: retrieve relevant chunks and generate answer (default English)
 func (q *QueryEngine) Query(meetingID, language, question string, topK int) (string, []int, error) {
-	log.Printf("[RAG Query] Processing question for meeting %s (language: %s)", meetingID, language)
+	return q.QueryWithLanguage(meetingID, language, "en", question, topK)
+}
+
+// QueryWithLanguage performs RAG query with specified response language
+func (q *QueryEngine) QueryWithLanguage(meetingID, transcriptLanguage, chatLanguage, question string, topK int) (string, []int, error) {
+	log.Printf("[RAG Query] Processing question for meeting %s (transcript: %s, response: %s)", meetingID, transcriptLanguage, chatLanguage)
 
 	// Step 1: Generate embedding for the question
 	questionEmbedding, err := q.EmbeddingClient.Embed(question)
@@ -37,7 +42,7 @@ func (q *QueryEngine) Query(meetingID, language, question string, topK int) (str
 	log.Printf("[RAG Query] Generated question embedding (%d dims)", len(questionEmbedding))
 
 	// Step 2: Retrieve top-k similar chunks using vector similarity search
-	chunks, err := database.SearchSimilarChunks(meetingID, language, questionEmbedding, topK)
+	chunks, err := database.SearchSimilarChunks(meetingID, transcriptLanguage, questionEmbedding, topK)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to search chunks: %w", err)
 	}
@@ -54,8 +59,8 @@ func (q *QueryEngine) Query(meetingID, language, question string, topK int) (str
 
 	log.Printf("[RAG Query] Built context (%d chars)", len(context))
 
-	// Step 4: Generate answer using LLM
-	answer, err := q.LLMClient.Generate(question, context, 500, 0.7)
+	// Step 4: Generate answer using LLM with specified chat language
+	answer, err := q.LLMClient.GenerateWithLanguage(question, context, chatLanguage, 500, 0.7)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to generate answer: %w", err)
 	}

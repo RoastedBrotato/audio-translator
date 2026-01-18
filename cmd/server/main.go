@@ -2897,11 +2897,12 @@ func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.Qu
 	}
 
 	var req struct {
-		SessionID string `json:"sessionId"`
-		Question  string `json:"question"`
-		MeetingID string `json:"meetingId"`
-		Language  string `json:"language"`
-		TopK      int    `json:"topK,omitempty"`
+		SessionID    string `json:"sessionId"`
+		Question     string `json:"question"`
+		MeetingID    string `json:"meetingId"`
+		Language     string `json:"language"`
+		ChatLanguage string `json:"chatLanguage,omitempty"`
+		TopK         int    `json:"topK,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2931,6 +2932,11 @@ func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.Qu
 		req.TopK = 5
 	}
 
+	// Default chat language to English if not provided (backward compatibility)
+	if req.ChatLanguage == "" {
+		req.ChatLanguage = "en"
+	}
+
 	// Save user question to database
 	userMsg := &database.ChatMessage{
 		SessionID: req.SessionID,
@@ -2944,8 +2950,8 @@ func handleChatQuery(w http.ResponseWriter, r *http.Request, queryEngine *rag.Qu
 	// Update session activity
 	database.UpdateChatSessionActivity(req.SessionID)
 
-	// Perform RAG query
-	answer, chunkIDs, err := queryEngine.Query(req.MeetingID, req.Language, req.Question, req.TopK)
+	// Perform RAG query with specified chat language
+	answer, chunkIDs, err := queryEngine.QueryWithLanguage(req.MeetingID, req.Language, req.ChatLanguage, req.Question, req.TopK)
 	if err != nil {
 		log.Printf("RAG query failed: %v", err)
 		sendJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Query failed: %v", err))

@@ -24,6 +24,7 @@ const minutesDecisions = document.getElementById('minutesDecisions');
 const minutesSummary = document.getElementById('minutesSummary');
 
 const chatLanguage = document.getElementById('chatLanguage');
+const chatResponseLanguage = document.getElementById('chatResponseLanguage');
 const chatStatus = document.getElementById('chatStatus');
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
@@ -38,6 +39,7 @@ const meetingId = urlParams.get('id');
 let meetingRoomCode = '';
 let chatSessionId = '';
 let chatReady = false;
+let preferredChatLanguage = localStorage.getItem('chatResponseLanguage') || 'en';
 
 function showAuthRequired() {
     authOverlay.style.display = 'flex';
@@ -74,10 +76,16 @@ function setChatStatus(message) {
     chatStatus.textContent = message;
 }
 
-function addChatMessage(role, text) {
+function addChatMessage(role, text, language) {
     const message = document.createElement('div');
     message.className = `chat-message ${role}`;
     message.textContent = text;
+
+    // Add language attribute for RTL support
+    if (language) {
+        message.setAttribute('data-lang', language);
+    }
+
     chatMessages.appendChild(message);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -151,6 +159,7 @@ async function sendChatMessage() {
                 question,
                 meetingId,
                 language: chatLanguage.value,
+                chatLanguage: chatResponseLanguage.value,
                 topK: 5
             })
         });
@@ -160,7 +169,7 @@ async function sendChatMessage() {
         }
 
         const data = await response.json();
-        addChatMessage('assistant', data.answer || 'No answer returned.');
+        addChatMessage('assistant', data.answer || 'No answer returned.', chatResponseLanguage.value);
     } catch (error) {
         console.error('Chat query failed:', error);
         const isNetworkError = error && (error.name === 'TypeError' || `${error}`.includes('NetworkError'));
@@ -292,6 +301,31 @@ function renderChatLanguages(snapshots) {
     setChatStatus('Ready to answer questions about this transcript.');
 }
 
+function initializeChatResponseLanguage() {
+    const languages = [
+        { code: 'en', name: 'English' },
+        { code: 'ar', name: 'العربية (Arabic)' },
+        { code: 'ur', name: 'اردو (Urdu)' },
+        { code: 'hi', name: 'हिन्दी (Hindi)' },
+        { code: 'ml', name: 'മലയാളം (Malayalam)' },
+        { code: 'te', name: 'తెలుగు (Telugu)' },
+        { code: 'ta', name: 'தமிழ் (Tamil)' },
+        { code: 'bn', name: 'বাংলা (Bengali)' },
+        { code: 'fr', name: 'Français (French)' },
+        { code: 'es', name: 'Español (Spanish)' },
+        { code: 'de', name: 'Deutsch (German)' },
+        { code: 'zh', name: '中文 (Chinese)' },
+        { code: 'ja', name: '日本語 (Japanese)' },
+        { code: 'ko', name: '한국어 (Korean)' }
+    ];
+
+    chatResponseLanguage.innerHTML = languages.map((lang) =>
+        `<option value="${escapeHtml(lang.code)}">${escapeHtml(lang.name)}</option>`
+    ).join('');
+
+    chatResponseLanguage.value = preferredChatLanguage;
+}
+
 function updateSummary(detail) {
     meetingRoomCode = detail.roomCode || '';
     roomCodeEl.textContent = meetingRoomCode || detail.id || 'Unknown';
@@ -388,6 +422,12 @@ function setupChatControls() {
             addChatMessage('assistant', 'Language updated. Ask your next question.');
         }
     });
+
+    chatResponseLanguage.addEventListener('change', () => {
+        preferredChatLanguage = chatResponseLanguage.value;
+        localStorage.setItem('chatResponseLanguage', preferredChatLanguage);
+        addChatMessage('assistant', 'Response language updated. Your next answer will be in the selected language.', preferredChatLanguage);
+    });
 }
 
 async function init() {
@@ -403,6 +443,7 @@ async function init() {
     showMainContent();
     setupTabs();
     setupChatControls();
+    initializeChatResponseLanguage();
     await loadMeetingDetail();
 }
 

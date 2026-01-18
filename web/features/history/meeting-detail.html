@@ -239,6 +239,23 @@
             align-self: flex-start;
         }
 
+        /* RTL support for Arabic and Urdu chat messages */
+        .chat-message[data-lang="ar"],
+        .chat-message[data-lang="ur"] {
+            direction: rtl;
+            text-align: right;
+        }
+
+        .chat-message.user[data-lang="ar"],
+        .chat-message.user[data-lang="ur"] {
+            align-self: flex-end;
+        }
+
+        .chat-message.assistant[data-lang="ar"],
+        .chat-message.assistant[data-lang="ur"] {
+            align-self: flex-start;
+        }
+
         .chat-input {
             display: flex;
             gap: 10px;
@@ -365,6 +382,10 @@
                     <div>
                         <label for="chatLanguage">Transcript Language</label>
                         <select id="chatLanguage"></select>
+                    </div>
+                    <div>
+                        <label for="chatResponseLanguage">Response Language</label>
+                        <select id="chatResponseLanguage"></select>
                     </div>
                     <div class="chat-status" id="chatStatus">Loading transcript languages...</div>
                 </div>

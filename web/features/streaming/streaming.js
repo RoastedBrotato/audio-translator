@@ -232,7 +232,7 @@ async function translateSegment(text, index) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: text,
-        source_lang: 'ur',  // Specify Urdu as source
+        source_lang: sourceLang.value,
         target_lang: targetLang.value
       })
     });
