@@ -39,9 +39,68 @@ cd "$ROOT_DIR"
 echo "🚀 Starting Audio Translator Services..."
 echo ""
 
+# Check if system Ollama service is using port 11434
+if lsof -Pi :11434 -sTCP:LISTEN -t >/dev/null 2>&1 || ss -ltn | grep -q ':11434 '; then
+    if systemctl is-active --quiet ollama 2>/dev/null; then
+        echo "⚠️  System Ollama service detected on port 11434"
+        echo "   Stopping it to avoid conflicts with Docker container..."
+        sudo systemctl stop ollama
+        echo "✓ System Ollama stopped"
+        echo ""
+    fi
+fi
+
 # Enable BuildKit
 export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
+
+# Check and configure .env file with required variables
+if [ ! -f .env ]; then
+    echo "⚠️  .env file not found, creating with default values..."
+    touch .env
+fi
+
+# Ensure required database variables are set
+if ! grep -q "^DB_HOST=" .env; then
+    echo "📝 Adding database configuration to .env..."
+    cat >> .env << 'EOF'
+
+# Database configuration
+DB_HOST=localhost
+DB_PORT=5433
+DB_USER=audio_translator
+DB_PASSWORD=audio_translator_pass
+DB_NAME=audio_translator
+EOF
+fi
+
+# Ensure MinIO variables are set
+if ! grep -q "^MINIO_ENABLED=" .env; then
+    echo "📝 Adding MinIO configuration to .env..."
+    cat >> .env << 'EOF'
+
+# MinIO configuration
+MINIO_ENABLED=true
+MINIO_ENDPOINT=localhost:9000
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin123
+MINIO_BUCKET=audio-translator-files
+MINIO_USE_SSL=false
+EOF
+fi
+
+# Ensure LLM service URL is set
+if ! grep -q "^LLM_BASE_URL=" .env; then
+    echo "📝 Adding LLM service URL to .env..."
+    cat >> .env << 'EOF'
+
+# LLM Service
+LLM_BASE_URL=http://127.0.0.1:8007
+EOF
+fi
+
+echo "✓ Environment configuration verified"
+echo ""
 
 # Check for old standalone containers that might conflict with docker-compose
 OLD_CONTAINERS=$(docker ps --format "{{.Names}}" | grep -E "^(asr-streaming|audio-translator-asr|audio-translator-translate|audio-translator-tts)$" || true)
@@ -80,8 +139,16 @@ if ! docker compose up -d; then
     exit 1
 fi
 
-# Wait a moment for services to initialize
-sleep 2
+# Ensure all containers are properly networked
+echo "🔗 Verifying container networking..."
+OLLAMA_NETWORK=$(docker inspect audio-translator-ollama-1 -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null || echo "")
+if [ -z "$OLLAMA_NETWORK" ] || [ "$OLLAMA_NETWORK" != "audio-translator_default" ]; then
+    echo "   Connecting Ollama to network..."
+    docker network connect audio-translator_default audio-translator-ollama-1 2>/dev/null || true
+fi
+
+# Wait for services to initialize
+sleep 3
 
 # Show status
 echo ""
@@ -119,11 +186,28 @@ nohup "$SERVER_BIN" > "$SERVER_LOG" 2>&1 &
 echo $! > "$SERVER_PID_FILE"
 
 echo ""
+echo "� Verifying services..."
+# Check if LLM service can reach Ollama
+for i in {1..5}; do
+    if docker exec audio-translator-llm_service-1 python -c "import urllib.request; urllib.request.urlopen('http://ollama:11434/api/tags', timeout=2)" >/dev/null 2>&1; then
+        echo "✓ LLM service can reach Ollama"
+        break
+    fi
+    if [ $i -eq 5 ]; then
+        echo "⚠️  Warning: LLM service cannot reach Ollama yet. Chat may not work immediately."
+        echo "   This usually resolves after a few seconds. Try restarting if chat doesn't work:"
+        echo "   docker restart audio-translator-llm_service-1"
+    fi
+    sleep 2
+done
+
+echo ""
 echo "📊 Service URLs:"
 echo "  - Web UI:         http://localhost:8080"
 echo "  - ASR Streaming:  http://localhost:8003"
 echo "  - Translation:    http://localhost:8004"
 echo "  - TTS:            http://localhost:8005"
+echo "  - LLM Service:    http://localhost:8007"
 echo ""
 echo "💡 Commands:"
 echo "  - View container logs: docker compose logs -f"
