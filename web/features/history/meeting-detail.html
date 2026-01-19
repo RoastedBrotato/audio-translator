@@ -279,6 +279,87 @@
             white-space: nowrap;
         }
 
+        /* Role badges */
+        .role-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .role-owner {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .role-editor {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .role-viewer {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        /* Access Control */
+        .access-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            gap: 15px;
+        }
+
+        .access-user {
+            flex: 1;
+        }
+
+        .access-user strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .access-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .access-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .role-select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-white);
+            font-size: 13px;
+        }
+
+        .btn-danger-small {
+            padding: 6px 12px;
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .btn-danger-small:hover {
+            background: #fee2e2;
+        }
+
         .placeholder-text {
             color: var(--text-secondary);
         }
@@ -321,6 +402,10 @@
                     <div class="value" id="meetingStatus">...</div>
                 </div>
                 <div class="summary-card">
+                    <div class="label">Your Role</div>
+                    <div class="value" id="meetingRole">...</div>
+                </div>
+                <div class="summary-card">
                     <div class="label">Created</div>
                     <div class="value" id="meetingCreated">...</div>
                 </div>
@@ -341,6 +426,14 @@
         </div>
 
         <div id="tabInfo" class="tab-content active">
+            <div id="accessControlSection" class="info-section" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 class="section-title" style="margin: 0;">Access Control</h3>
+                    <button id="grantAccessBtn" class="btn-secondary">Grant Access</button>
+                </div>
+                <div id="accessControlList"></div>
+            </div>
+
             <div class="info-section">
                 <h3 class="section-title">Participants</h3>
                 <div id="participantsList" class="participants-list"></div>

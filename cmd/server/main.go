@@ -1730,6 +1730,15 @@ func handleJoinMeeting(w http.ResponseWriter, r *http.Request, roomManager *meet
 		return
 	}
 
+	// Automatically grant viewer access if user is authenticated
+	if userID != nil {
+		err = database.AutoGrantViewerAccess(mtg.ID, *userID)
+		if err != nil {
+			// Log error but don't fail the join - they can still participate
+			log.Printf("Warning: Failed to auto-grant viewer access for user %d in meeting %s: %v", *userID, mtg.ID, err)
+		}
+	}
+
 	log.Printf("Participant %d (%s) joined meeting %s", participant.ID, participant.ParticipantName, mtg.ID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2518,6 +2527,23 @@ func main() {
 		handleGetUserMeetingDetail(w, r, keycloakVerifier)
 	})
 
+	// Meeting Access Control API endpoints
+	http.HandleFunc("/api/meetings/access/list/", func(w http.ResponseWriter, r *http.Request) {
+		handleListMeetingAccess(w, r, keycloakVerifier)
+	})
+	http.HandleFunc("/api/meetings/access/grant", func(w http.ResponseWriter, r *http.Request) {
+		handleGrantMeetingAccess(w, r, keycloakVerifier)
+	})
+	http.HandleFunc("/api/meetings/access/update", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateMeetingAccess(w, r, keycloakVerifier)
+	})
+	http.HandleFunc("/api/meetings/access/revoke", func(w http.ResponseWriter, r *http.Request) {
+		handleRevokeMeetingAccess(w, r, keycloakVerifier)
+	})
+	http.HandleFunc("/api/meetings/participants/available/", func(w http.ResponseWriter, r *http.Request) {
+		handleGetAvailableParticipants(w, r, keycloakVerifier)
+	})
+
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -3071,5 +3097,294 @@ func handleGetUserMeetingDetail(w http.ResponseWriter, r *http.Request, keycloak
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"meeting": detail,
+	})
+}
+
+// handleListMeetingAccess returns all users with access to a meeting (owner only)
+func handleListMeetingAccess(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return
+	}
+
+	// Extract meeting ID from URL path: /api/meetings/access/list/{meetingId}
+	path := strings.TrimPrefix(r.URL.Path, "/api/meetings/access/list/")
+	meetingID := strings.TrimSuffix(path, "/")
+
+	if meetingID == "" {
+		sendJSONError(w, http.StatusBadRequest, "Meeting ID required")
+		return
+	}
+
+	// Check if user is owner
+	userRole, err := database.GetUserMeetingRole(user.ID, meetingID)
+	if err != nil {
+		log.Printf("Failed to get user role: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to check permissions")
+		return
+	}
+
+	if userRole != database.RoleOwner {
+		sendJSONError(w, http.StatusForbidden, "Only meeting owners can manage access")
+		return
+	}
+
+	// Get access control list
+	acl, err := database.ListMeetingAccessControl(meetingID)
+	if err != nil {
+		log.Printf("Failed to list meeting access: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to get access list")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"access":  acl,
+	})
+}
+
+// handleGrantMeetingAccess grants access to a user (owner only)
+func handleGrantMeetingAccess(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodPost {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		MeetingID string `json:"meetingId"`
+		UserID    int    `json:"userId"`
+		Role      string `json:"role"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.MeetingID == "" || req.UserID == 0 || req.Role == "" {
+		sendJSONError(w, http.StatusBadRequest, "meetingId, userId, and role are required")
+		return
+	}
+
+	// Check if user is owner
+	userRole, err := database.GetUserMeetingRole(user.ID, req.MeetingID)
+	if err != nil {
+		log.Printf("Failed to get user role: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to check permissions")
+		return
+	}
+
+	if userRole != database.RoleOwner {
+		sendJSONError(w, http.StatusForbidden, "Only meeting owners can grant access")
+		return
+	}
+
+	// Grant access
+	err = database.GrantMeetingAccess(req.MeetingID, req.UserID, req.Role, user.ID)
+	if err != nil {
+		log.Printf("Failed to grant access: %v", err)
+		if strings.Contains(err.Error(), "invalid role") {
+			sendJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "creator") {
+			sendJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		sendJSONError(w, http.StatusInternalServerError, "Failed to grant access")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Access granted successfully",
+	})
+}
+
+// handleUpdateMeetingAccess updates a user's role (owner only)
+func handleUpdateMeetingAccess(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodPut {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		MeetingID string `json:"meetingId"`
+		UserID    int    `json:"userId"`
+		Role      string `json:"role"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.MeetingID == "" || req.UserID == 0 || req.Role == "" {
+		sendJSONError(w, http.StatusBadRequest, "meetingId, userId, and role are required")
+		return
+	}
+
+	// Check if user is owner
+	userRole, err := database.GetUserMeetingRole(user.ID, req.MeetingID)
+	if err != nil {
+		log.Printf("Failed to get user role: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to check permissions")
+		return
+	}
+
+	if userRole != database.RoleOwner {
+		sendJSONError(w, http.StatusForbidden, "Only meeting owners can update access")
+		return
+	}
+
+	// Update access (reuse GrantMeetingAccess which handles updates)
+	err = database.GrantMeetingAccess(req.MeetingID, req.UserID, req.Role, user.ID)
+	if err != nil {
+		log.Printf("Failed to update access: %v", err)
+		if strings.Contains(err.Error(), "invalid role") {
+			sendJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "creator") {
+			sendJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		sendJSONError(w, http.StatusInternalServerError, "Failed to update access")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Access updated successfully",
+	})
+}
+
+// handleRevokeMeetingAccess revokes access from a user (owner only)
+func handleRevokeMeetingAccess(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodDelete {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		MeetingID string `json:"meetingId"`
+		UserID    int    `json:"userId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.MeetingID == "" || req.UserID == 0 {
+		sendJSONError(w, http.StatusBadRequest, "meetingId and userId are required")
+		return
+	}
+
+	// Check if user is owner
+	userRole, err := database.GetUserMeetingRole(user.ID, req.MeetingID)
+	if err != nil {
+		log.Printf("Failed to get user role: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to check permissions")
+		return
+	}
+
+	if userRole != database.RoleOwner {
+		sendJSONError(w, http.StatusForbidden, "Only meeting owners can revoke access")
+		return
+	}
+
+	// Revoke access
+	err = database.RevokeMeetingAccess(req.MeetingID, req.UserID)
+	if err != nil {
+		log.Printf("Failed to revoke access: %v", err)
+		if strings.Contains(err.Error(), "creator") {
+			sendJSONError(w, http.StatusBadRequest, "Cannot revoke creator's access")
+			return
+		}
+		if strings.Contains(err.Error(), "does not have explicit access") {
+			sendJSONError(w, http.StatusNotFound, "User does not have explicit access")
+			return
+		}
+		sendJSONError(w, http.StatusInternalServerError, "Failed to revoke access")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Access revoked successfully",
+	})
+}
+
+// handleGetAvailableParticipants returns participants without explicit ACL (owner only)
+func handleGetAvailableParticipants(w http.ResponseWriter, r *http.Request, keycloakVerifier *auth.KeycloakVerifier) {
+	if r.Method != http.MethodGet {
+		sendJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user, ok := authenticateUserFromRequest(keycloakVerifier, w, r)
+	if !ok {
+		return
+	}
+
+	// Extract meeting ID from URL path: /api/meetings/participants/available/{meetingId}
+	path := strings.TrimPrefix(r.URL.Path, "/api/meetings/participants/available/")
+	meetingID := strings.TrimSuffix(path, "/")
+
+	if meetingID == "" {
+		sendJSONError(w, http.StatusBadRequest, "Meeting ID required")
+		return
+	}
+
+	// Check if user is owner
+	userRole, err := database.GetUserMeetingRole(user.ID, meetingID)
+	if err != nil {
+		log.Printf("Failed to get user role: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to check permissions")
+		return
+	}
+
+	if userRole != database.RoleOwner {
+		sendJSONError(w, http.StatusForbidden, "Only meeting owners can view available participants")
+		return
+	}
+
+	// Get available participants
+	participants, err := database.GetAvailableParticipants(meetingID)
+	if err != nil {
+		log.Printf("Failed to get available participants: %v", err)
+		sendJSONError(w, http.StatusInternalServerError, "Failed to get participants")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"participants": participants,
 	})
 }

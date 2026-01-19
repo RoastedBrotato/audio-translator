@@ -11,6 +11,10 @@ const meetingStatus = document.getElementById('meetingStatus');
 const meetingCreated = document.getElementById('meetingCreated');
 const meetingDuration = document.getElementById('meetingDuration');
 const meetingChunks = document.getElementById('meetingChunks');
+const meetingRoleEl = document.getElementById('meetingRole');
+const accessControlSection = document.getElementById('accessControlSection');
+const accessControlList = document.getElementById('accessControlList');
+const grantAccessBtn = document.getElementById('grantAccessBtn');
 const participantsList = document.getElementById('participantsList');
 const snapshotTable = document.getElementById('snapshotTable');
 const snapshotBody = document.getElementById('snapshotBody');
@@ -283,6 +287,198 @@ function renderMinutes(minutes, summaryText) {
         : '<div class=\"placeholder-text\">No summary provided.</div>';
 }
 
+function getRoleBadgeClass(role) {
+    switch (role) {
+        case 'owner':
+            return 'role-badge role-owner';
+        case 'editor':
+            return 'role-badge role-editor';
+        case 'viewer':
+            return 'role-badge role-viewer';
+        default:
+            return 'role-badge';
+    }
+}
+
+function renderAccessControl(accessControl) {
+    if (!accessControl || accessControl.length === 0) {
+        accessControlList.innerHTML = '<div class="placeholder-text">No explicit access permissions set. All participants have viewer access by default.</div>';
+        return;
+    }
+
+    accessControlList.innerHTML = accessControl.map((entry) => {
+        const badgeClass = getRoleBadgeClass(entry.role);
+        return `
+            <div class="access-entry">
+                <div class="access-user">
+                    <strong>${escapeHtml(entry.displayName || entry.username)}</strong>
+                    <div class="access-meta">@${escapeHtml(entry.username)}</div>
+                </div>
+                <div class="access-controls">
+                    <select class="role-select" data-user-id="${entry.userId}">
+                        <option value="viewer" ${entry.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                        <option value="editor" ${entry.role === 'editor' ? 'selected' : ''}>Editor</option>
+                    </select>
+                    <button class="btn-danger-small revoke-btn" data-user-id="${entry.userId}" data-username="${escapeHtml(entry.displayName || entry.username)}">Revoke</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Add event listeners for role changes
+    accessControlList.querySelectorAll('.role-select').forEach((select) => {
+        select.addEventListener('change', async (e) => {
+            const userId = parseInt(e.target.dataset.userId);
+            const newRole = e.target.value;
+            await updateUserRole(userId, newRole);
+        });
+    });
+
+    // Add event listeners for revoke buttons
+    accessControlList.querySelectorAll('.revoke-btn').forEach((button) => {
+        button.addEventListener('click', async (e) => {
+            const userId = parseInt(e.target.dataset.userId);
+            const username = e.target.dataset.username;
+            if (confirm(`Are you sure you want to revoke access for ${username}?`)) {
+                await revokeUserAccess(userId);
+            }
+        });
+    });
+}
+
+async function updateUserRole(userId, newRole) {
+    const token = getAccessToken();
+    if (!token) return;
+
+    try {
+        const response = await fetch('/api/meetings/access/update', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                meetingId: meetingId,
+                userId: userId,
+                role: newRole
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to update role (${response.status})`);
+        }
+
+        await loadMeetingDetail();
+    } catch (error) {
+        console.error('Failed to update role:', error);
+        alert('Failed to update role. Please try again.');
+        await loadMeetingDetail();
+    }
+}
+
+async function revokeUserAccess(userId) {
+    const token = getAccessToken();
+    if (!token) return;
+
+    try {
+        const response = await fetch('/api/meetings/access/revoke', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                meetingId: meetingId,
+                userId: userId
+            })
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || `Failed to revoke access (${response.status})`);
+        }
+
+        await loadMeetingDetail();
+    } catch (error) {
+        console.error('Failed to revoke access:', error);
+        alert(error.message || 'Failed to revoke access. Please try again.');
+        await loadMeetingDetail();
+    }
+}
+
+async function showGrantAccessModal() {
+    const token = getAccessToken();
+    if (!token) return;
+
+    // Get available participants
+    try {
+        const response = await fetch(`/api/meetings/participants/available/${encodeURIComponent(meetingId)}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to get available participants (${response.status})`);
+        }
+
+        const data = await response.json();
+        const participants = data.participants || [];
+
+        if (participants.length === 0) {
+            alert('No participants available to grant access. All participants already have explicit permissions.');
+            return;
+        }
+
+        const selectedUserId = prompt(`Select user ID to grant access:\n${participants.map(p => `${p.userId}: ${p.participantName}`).join('\n')}`);
+
+        if (!selectedUserId) return;
+
+        const userId = parseInt(selectedUserId);
+        const role = prompt('Select role (viewer or editor):', 'viewer');
+
+        if (!role || (role !== 'viewer' && role !== 'editor')) {
+            alert('Invalid role. Must be "viewer" or "editor".');
+            return;
+        }
+
+        await grantAccess(userId, role);
+    } catch (error) {
+        console.error('Failed to show grant access modal:', error);
+        alert('Failed to load participants. Please try again.');
+    }
+}
+
+async function grantAccess(userId, role) {
+    const token = getAccessToken();
+    if (!token) return;
+
+    try {
+        const response = await fetch('/api/meetings/access/grant', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                meetingId: meetingId,
+                userId: userId,
+                role: role
+            })
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || `Failed to grant access (${response.status})`);
+        }
+
+        await loadMeetingDetail();
+    } catch (error) {
+        console.error('Failed to grant access:', error);
+        alert(error.message || 'Failed to grant access. Please try again.');
+    }
+}
+
 function renderChatLanguages(snapshots) {
     chatLanguage.innerHTML = '';
 
@@ -336,6 +532,25 @@ function updateSummary(detail) {
     meetingDuration.textContent = formatDuration(detail.createdAt, detail.endedAt);
     meetingChunks.textContent = detail.chunkCount ? `${detail.chunkCount} chunks` : 'Not ready';
     chatReady = Boolean(detail.hasRAGChunks);
+
+    // Display user's role
+    if (detail.userRole && meetingRoleEl) {
+        const roleBadgeClass = getRoleBadgeClass(detail.userRole);
+        meetingRoleEl.innerHTML = `<span class="${roleBadgeClass}">${escapeHtml(detail.userRole)}</span>`;
+    }
+
+    // Show/hide access control section based on permissions
+    if (detail.canManageAccess && accessControlSection) {
+        accessControlSection.style.display = 'block';
+        renderAccessControl(detail.accessControl || []);
+
+        // Set up grant access button
+        if (grantAccessBtn) {
+            grantAccessBtn.onclick = showGrantAccessModal;
+        }
+    } else if (accessControlSection) {
+        accessControlSection.style.display = 'none';
+    }
 
     if (!chatReady) {
         setChatStatus('RAG chat is not available for this meeting yet.');

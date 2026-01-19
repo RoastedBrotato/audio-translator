@@ -12,7 +12,8 @@ type MeetingHistoryItem struct {
 	ID                 string     `json:"id"`
 	RoomCode           string     `json:"roomCode"`
 	Mode               string     `json:"mode"`
-	Role               string     `json:"role"` // "creator" or "participant"
+	Role               string     `json:"role"`          // ACL role: "owner", "editor", or "viewer"
+	UserRole           string     `json:"userRole"`      // User's actual role for display
 	CreatedAt          time.Time  `json:"createdAt"`
 	EndedAt            *time.Time `json:"endedAt,omitempty"`
 	IsActive           bool       `json:"isActive"`
@@ -30,6 +31,9 @@ type MeetingDetail struct {
 	CreatedAt           time.Time                 `json:"createdAt"`
 	EndedAt             *time.Time                `json:"endedAt,omitempty"`
 	IsActive            bool                      `json:"isActive"`
+	UserRole            string                    `json:"userRole"`              // User's ACL role
+	CanManageAccess     bool                      `json:"canManageAccess"`       // Whether user can manage permissions
+	AccessControl       []MeetingACLEntry         `json:"accessControl,omitempty"` // Only for owners
 	Participants        []MeetingParticipantInfo  `json:"participants"`
 	TranscriptSnapshots []TranscriptSnapshotInfo  `json:"transcriptSnapshots"`
 	HasRAGChunks        bool                      `json:"hasRAGChunks"`
@@ -66,7 +70,7 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 		// "all" - no filter
 	}
 
-	// Main query to get meetings
+	// Main query to get meetings with ACL role information
 	query := fmt.Sprintf(`
 		SELECT DISTINCT ON (m.id)
 			m.id,
@@ -76,9 +80,13 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 			m.ended_at,
 			m.is_active,
 			CASE
-				WHEN m.created_by = $1 THEN 'creator'
-				ELSE 'participant'
+				WHEN m.created_by = $1 THEN 'owner'
+				ELSE COALESCE(mac.role, 'viewer')
 			END as role,
+			CASE
+				WHEN m.created_by = $1 THEN 'owner'
+				ELSE COALESCE(mac.role, 'viewer')
+			END as user_role,
 			(SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.id) as participant_count,
 			CASE
 				WHEN m.ended_at IS NOT NULL
@@ -88,8 +96,9 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 			mm.summary as minutes_summary
 		FROM meetings m
 		LEFT JOIN meeting_participants mp ON mp.meeting_id = m.id AND mp.user_id = $1
+		LEFT JOIN meeting_access_control mac ON mac.meeting_id = m.id AND mac.user_id = $1
 		LEFT JOIN meeting_minutes mm ON mm.meeting_id = m.id AND mm.language = 'en'
-		WHERE (m.created_by = $1 OR mp.user_id = $1) %s
+		WHERE (m.created_by = $1 OR mp.user_id = $1 OR mac.user_id = $1) %s
 		ORDER BY m.id, m.created_at DESC
 	`, statusFilter)
 
@@ -123,6 +132,7 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 			&endedAt,
 			&item.IsActive,
 			&item.Role,
+			&item.UserRole,
 			&item.ParticipantCount,
 			&durationSeconds,
 			&minutesSummary,
@@ -174,7 +184,8 @@ func GetUserMeetings(userID int, limit, offset int, status string) ([]MeetingHis
 		SELECT COUNT(DISTINCT m.id)
 		FROM meetings m
 		LEFT JOIN meeting_participants mp ON mp.meeting_id = m.id AND mp.user_id = $1
-		WHERE (m.created_by = $1 OR mp.user_id = $1) %s
+		LEFT JOIN meeting_access_control mac ON mac.meeting_id = m.id AND mac.user_id = $1
+		WHERE (m.created_by = $1 OR mp.user_id = $1 OR mac.user_id = $1) %s
 	`, statusFilter)
 
 	var total int
@@ -258,12 +269,12 @@ func getMeetingLanguagesBulk(meetingIDs []string) (map[string][]string, error) {
 
 // GetUserMeetingDetail returns detailed meeting info with authorization check
 func GetUserMeetingDetail(userID int, meetingID string) (*MeetingDetail, error) {
-	// First check if user can access this meeting
-	canAccess, err := UserCanAccessMeeting(userID, meetingID)
+	// Get user's role for this meeting
+	userRole, err := GetUserMeetingRole(userID, meetingID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check meeting access: %w", err)
+		return nil, fmt.Errorf("failed to get user role: %w", err)
 	}
-	if !canAccess {
+	if userRole == "" {
 		return nil, fmt.Errorf("unauthorized: user does not have access to this meeting")
 	}
 
@@ -294,6 +305,20 @@ func GetUserMeetingDetail(userID int, meetingID string) (*MeetingDetail, error) 
 
 	if endedAt.Valid {
 		detail.EndedAt = &endedAt.Time
+	}
+
+	// Set user's role and permissions
+	detail.UserRole = userRole
+	detail.CanManageAccess = (userRole == RoleOwner)
+
+	// If user is owner, include access control list
+	if userRole == RoleOwner {
+		acl, err := ListMeetingAccessControl(meetingID)
+		if err != nil {
+			// Don't fail, just log
+			acl = []MeetingACLEntry{}
+		}
+		detail.AccessControl = acl
 	}
 
 	// Get participants
@@ -398,23 +423,14 @@ func getMeetingTranscriptSnapshotsInfo(meetingID string) ([]TranscriptSnapshotIn
 	return snapshots, rows.Err()
 }
 
-// UserCanAccessMeeting checks if user created or participated in meeting
+// UserCanAccessMeeting checks if user has any access to a meeting
+// Returns true if user is creator, has ACL entry, or is a participant
 func UserCanAccessMeeting(userID int, meetingID string) (bool, error) {
-	query := `
-		SELECT EXISTS(
-			SELECT 1 FROM meetings WHERE id = $2 AND created_by = $1
-			UNION
-			SELECT 1 FROM meeting_participants WHERE meeting_id = $2 AND user_id = $1
-		)
-	`
-
-	var exists bool
-	err := DB.QueryRow(query, userID, meetingID).Scan(&exists)
+	role, err := GetUserMeetingRole(userID, meetingID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check meeting access: %w", err)
 	}
-
-	return exists, nil
+	return role != "", nil
 }
 
 // GetMeetingChunkCount returns count of RAG chunks for a meeting

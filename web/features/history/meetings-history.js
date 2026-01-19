@@ -72,6 +72,19 @@ function formatDuration(seconds) {
     return `${minutes}m`;
 }
 
+function getRoleBadgeClass(role) {
+    switch (role) {
+        case 'owner':
+            return 'role-badge role-owner';
+        case 'editor':
+            return 'role-badge role-editor';
+        case 'viewer':
+            return 'role-badge role-viewer';
+        default:
+            return 'role-badge';
+    }
+}
+
 function renderMeetings(meetings) {
     if (!meetings || meetings.length === 0) {
         showEmptyState('No meetings found', 'Your past meetings will appear here.', true);
@@ -83,12 +96,15 @@ function renderMeetings(meetings) {
             `<span class="lang-badge">${escapeHtml(getLanguageName(lang))}</span>`
         )).join('');
 
+        const userRole = meeting.userRole || meeting.role || 'viewer';
+        const roleBadgeClass = getRoleBadgeClass(userRole);
+
         return `
             <div class="meeting-card" data-id="${escapeHtml(meeting.id)}">
                 <div class="meeting-card-header">
                     <div>
                         <div class="meeting-code">${escapeHtml(meeting.roomCode)}</div>
-                        <div class="meeting-role">${escapeHtml(meeting.role || 'participant')}</div>
+                        <span class="${roleBadgeClass}">${escapeHtml(userRole)}</span>
                     </div>
                     <span class="meeting-status ${meeting.isActive ? 'active' : 'ended'}">
                         ${meeting.isActive ? 'Active' : 'Ended'}
